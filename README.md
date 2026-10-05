@@ -1,16 +1,14 @@
 # Deadlock II: Shrine Wars — Autonomous Eternal Chronicle
 
-A Chronicle-first, fully autonomous text-based Python reinterpretation of **Deadlock II: Shrine Wars** built with `curses`.
+A Chronicle-first, race-selectable and otherwise fully autonomous text-based Python reinterpretation of **Deadlock II: Shrine Wars** built with `curses`.
 
-## No manual gameplay
+## Manual race selection, autonomous strategy
 
-All manual gameplay actions have been removed.
+Race selection is the one manual gameplay choice. On a new save, the opening screen lets the player choose one of the seven canon races with Up/Down + Enter or the `1`-`7` keys. That race is permanent for the save.
 
-There is no player-controlled race selection, task selection, Colony Assistant toggle, Build command, Trade command, Research command, Attack command, End Turn command, or prototype World Victory command.
+After race selection, the AI owns the entire strategy loop. There is no manual task selection, Colony Assistant toggle, Build command, Trade command, Research command, Attack command, End Turn command, or World Victory command.
 
-A new save automatically chooses one of the seven canon races, generates its first procedural scenario, and begins operating. From then on, the AI owns the complete strategy loop.
-
-The only accepted keyboard command is `Q`, which exits the program and is not a gameplay action.
+Once the campaign has started, the only accepted keyboard command is `Q`, which exits the program and does not alter strategy.
 
 ## Full automation
 
@@ -79,7 +77,7 @@ Semantic curses colors remain enabled when supported:
 - magenta: research/shrine information;
 - blue: autonomous decisions and scenario information.
 
-No tabs, dashboard panels, manual menus, or ASCII maps have been added.
+The presentation now uses a cleaner centered title, restrained Unicode dividers, aligned status rows, stronger spacing, and the existing semantic color palette. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
 
 ## Run
 
@@ -95,7 +93,7 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers autonomous bootstrap, absence of manual gameplay methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, and color semantics.
 
 ## Canon boundary
 
