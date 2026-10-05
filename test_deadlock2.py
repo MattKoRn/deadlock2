@@ -252,6 +252,16 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(deadlock2.humanize_duration(125), "2m 05s")
         self.assertEqual(deadlock2.humanize_duration(3725), "1h 02m")
 
+    def test_content_geometry_centers_with_breathing_room(self):
+        left, span = deadlock2.content_geometry(120, max_width=100, gutter=2)
+        self.assertEqual((left, span), (10, 100))
+        left, span = deadlock2.content_geometry(70, max_width=100, gutter=2)
+        self.assertEqual((left, span), (2, 66))
+
+    def test_centered_in_uses_content_column(self):
+        self.assertEqual(deadlock2.centered_in(10, 20, "TEST"), 18)
+        self.assertEqual(deadlock2.centered_in(0, 10, "AB"), 4)
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
