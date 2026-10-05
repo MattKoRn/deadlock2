@@ -28,37 +28,49 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
 
     def test_symbol_font_target_is_user_local_on_supported_platforms(self):
         home = Path("/home/tester")
-        linux_target = deadlock2.symbol_font_target("Linux", home=home)
+        filename = "NotoSansMono-Deadlock2.ttf"
+        linux_target = deadlock2.symbol_font_target(filename, "Linux", home=home)
         self.assertEqual(
             linux_target,
-            home / ".local" / "share" / "fonts" / deadlock2.SYMBOL_FONT_FILENAME,
+            home / ".local" / "share" / "fonts" / "deadlock2" / filename,
         )
-        mac_target = deadlock2.symbol_font_target("Darwin", home=home)
+        mac_target = deadlock2.symbol_font_target(filename, "Darwin", home=home)
         self.assertEqual(
             mac_target,
-            home / "Library" / "Fonts" / deadlock2.SYMBOL_FONT_FILENAME,
+            home / "Library" / "Fonts" / filename,
         )
         windows_target = deadlock2.symbol_font_target(
+            filename,
             "Windows",
             home=home,
             local_appdata=r"C:\Users\tester\AppData\Local",
         )
-        self.assertEqual(
-            windows_target.name,
-            deadlock2.SYMBOL_FONT_FILENAME,
-        )
+        self.assertEqual(windows_target.name, filename)
         self.assertIn("Fonts", windows_target.parts)
 
-    def test_symbol_archive_member_prefers_regular_font(self):
-        names = [
-            "README.txt",
-            "fonts/NotoSansSymbols2-Bold.ttf",
-            "fonts/NotoSansSymbols2-Regular.ttf",
-        ]
-        self.assertEqual(
-            deadlock2.choose_symbol_font_member(names),
-            "fonts/NotoSansSymbols2-Regular.ttf",
-        )
+    def test_symbol_bundle_contains_monospace_and_decorative_fonts(self):
+        families = {family for family, _, _ in deadlock2.SYMBOL_FONT_ASSETS}
+        self.assertEqual(families, {"Noto Sans Mono", "Noto Sans Symbols"})
+        filenames = {filename for _, filename, _ in deadlock2.SYMBOL_FONT_ASSETS}
+        self.assertIn("NotoSansMono-Deadlock2.ttf", filenames)
+        self.assertIn("NotoSansSymbols-Deadlock2.ttf", filenames)
+
+    def test_font_payload_validation_rejects_error_pages(self):
+        valid = b"\x00\x01\x00\x00" + b"x" * deadlock2.SYMBOL_FONT_MIN_BYTES
+        self.assertTrue(deadlock2.font_payload_is_valid(valid))
+        self.assertFalse(deadlock2.font_payload_is_valid(b"<html>download error</html>"))
+
+    def test_safe_symbol_mode_removes_rare_terminal_glyphs(self):
+        original = dict(deadlock2.UI_SYMBOLS)
+        try:
+            deadlock2.activate_safe_ui_symbols()
+            self.assertEqual(deadlock2.UI_SYMBOLS["divider"], "─")
+            self.assertEqual(deadlock2.UI_SYMBOLS["rail_live"], "│")
+            self.assertEqual(deadlock2.UI_SYMBOLS["research"], "◆")
+            self.assertEqual(deadlock2.UI_SYMBOLS["offline"], "○")
+        finally:
+            deadlock2.UI_SYMBOLS.clear()
+            deadlock2.UI_SYMBOLS.update(original)
 
     def test_chronicle_keeps_only_five_actions(self):
         state = deadlock2.GameState()
