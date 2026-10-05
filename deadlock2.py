@@ -357,29 +357,63 @@ class TechnologyRule:
 
 
 TECHNOLOGIES: dict[str, TechnologyRule] = {
+    # Imported prerequisite spine uses canon Deadlock II names/effects only.
+    # Project automation decides when to research; it does not alter these unlock rules.
+    "Advanced Medicine": TechnologyRule(
+        (),
+        "Allows Hospitals and training Medics.",
+    ),
+    "Metallurgy": TechnologyRule(
+        (),
+        "Lets factories transform Iron into Steel; Steel has five times the metal value of Iron.",
+    ),
     "Nuclear Fusion": TechnologyRule(
         (),
         "Allows construction of the Fusion Plant.",
     ),
     "Electronics": TechnologyRule(
         (),
-        "Lets research centers make Electronic Parts.",
+        "Lets research buildings produce Electronic Parts and enables Scouts and Command Corps.",
     ),
-    "Metallurgy": TechnologyRule(
-        (),
-        "Lets factories transform Iron into Steel; Steel has five times the metal value of Iron.",
+    "Synthetic Fertilizer": TechnologyRule(
+        ("Advanced Medicine", "Metallurgy"),
+        "Allows construction of Hydroponic Farms.",
     ),
-    "Chaos Computer": TechnologyRule(
-        ("Electronics", "Nuclear Fusion"),
-        "Allows construction of the Tech Lab.",
+    "Automation": TechnologyRule(
+        ("Metallurgy",),
+        "Allows construction of Automated Factories.",
+    ),
+    "Hoverway": TechnologyRule(
+        ("Metallurgy",),
+        "Reduces transportation costs.",
     ),
     "Molecular Bonding": TechnologyRule(
         ("Metallurgy",),
         "Allows the Mantle Drill, increasing Iron and Endurium production.",
     ),
-    "Synthetic Fertilizer": TechnologyRule(
-        ("Metallurgy", "Advanced Medicine"),
-        "Allows construction of Hydroponic Farms.",
+    "Fusion Cannon": TechnologyRule(
+        ("Nuclear Fusion", "Metallurgy"),
+        "Allows Fusion Cannon units and AAVs.",
+    ),
+    "Neutronic Fuel": TechnologyRule(
+        ("Nuclear Fusion",),
+        "Allows the Military Airbase and extends airplane range by one territory.",
+    ),
+    "Flak": TechnologyRule(
+        ("Nuclear Fusion",),
+        "Allows Flak Launchers and Flak Ships.",
+    ),
+    "Chaos Computer": TechnologyRule(
+        ("Electronics", "Nuclear Fusion"),
+        "Allows construction of the Tech Lab.",
+    ),
+    "Underwater Tracking": TechnologyRule(
+        ("Synthetic Fertilizer", "Automation"),
+        "Allows construction of Destroyers.",
+    ),
+    "Advanced Structures": TechnologyRule(
+        ("Hoverway", "Molecular Bonding"),
+        "Strengthens buildings and allows Sea Platforms and Civilian Defense Bunkers.",
     ),
     "Anti-Matter Containment": TechnologyRule(
         ("Flak", "Chaos Computer"),
@@ -389,13 +423,21 @@ TECHNOLOGIES: dict[str, TechnologyRule] = {
         ("Fusion Cannon", "Neutronic Fuel"),
         "Allows mines to produce Endurium; Endurium has five times the metal value of Iron.",
     ),
+    "Anti-Matter Rifles": TechnologyRule(
+        ("Advanced Structures", "Endurium Mining"),
+        "Allows construction of Battle Troopers.",
+    ),
+    "Power Cells": TechnologyRule(
+        ("Underwater Tracking", "Advanced Structures"),
+        "Increases combat speed and firing rate.",
+    ),
     "Tridium Processing": TechnologyRule(
         ("Endurium Mining",),
         "Lets factories refine Endurium into Tridium; Tridium has ten times the metal value of Iron.",
     ),
     "Food Replication": TechnologyRule(
         ("Power Cells", "Anti-Matter Rifles"),
-        "Allows Food Replicators, which exceed Hydroponic Farm Food and Wood production.",
+        "Allows construction of Food Replicators.",
     ),
 }
 
@@ -685,17 +727,74 @@ class GameState:
             f"Canon effect: {rule.effect} The unlock remains permanent across later worlds."
         )
 
+    def choose_strategic_action(self) -> tuple[str, str]:
+        """Choose one canon strategic verb from current world pressure.
+
+        Added contextual automation rule: Build stabilizes the opening third, Trade
+        carries the middle, Attack closes the final third, while every fourth
+        decision may become Research when a verified technology is currently legal.
+        This pacing rule is project automation; the action names remain canon.
+        """
+        goal = self.world_action_goal()
+        decision_number = self.assistant_decisions + 1
+        eligible = self.eligible_technologies()
+
+        if eligible and decision_number % 4 == 0:
+            return (
+                "Research",
+                f"Research was selected because {eligible[0]} is currently legal and "
+                "the fourth-decision research cadence prevents canon technology from "
+                "being starved by endless military or economic actions.",
+            )
+
+        if self.world_actions * 3 >= goal * 2:
+            return (
+                "Attack",
+                "Attack was selected because scenario progress has entered the final "
+                "third, so military pressure now outranks expansion.",
+            )
+
+        if self.world_actions * 3 < goal:
+            return (
+                "Build",
+                "Build was selected because scenario progress remains in the opening "
+                "third, so colony development takes priority.",
+            )
+
+        return (
+            "Trade",
+            "Trade was selected because scenario progress is in the middle third, "
+            "between opening construction and late-world military pressure.",
+        )
+
+    def choose_assistant_task(self, strategic_action: str) -> str:
+        """Map the strategic verb to one legal canon Colony Assistant focus."""
+        legal = self.legal_assistant_tasks()
+        preferred: dict[str, tuple[str, ...]] = {
+            "Build": ("Construction", "Upgrade", "House Populace"),
+            "Trade": ("Trade", "Create Art", "Culture"),
+            "Research": ("Research", "Electronic Parts", "Energy"),
+            "Attack": (
+                "Anti-Matter Pods",
+                "Endurium to Triidium",
+                "Iron to Steel",
+                "Electronic Parts",
+                "Energy",
+            ),
+        }
+        for task in preferred.get(strategic_action, ()):
+            if task in legal:
+                return task
+        return legal[self.assistant_decisions % len(legal)]
+
     def make_assistant_decision(self, decision_epoch: float) -> None:
         """Execute the game's one fully autonomous strategic decision for this minute."""
         self.ensure_world()
         legal_tasks = self.legal_assistant_tasks()
         decision_number = self.assistant_decisions + 1
 
-        # One decision controls both the canon strategic verb and production focus.
-        strategic_action = STRATEGIC_ACTIONS[
-            self.strategic_actions % len(STRATEGIC_ACTIONS)
-        ]
-        task = legal_tasks[self.assistant_decisions % len(legal_tasks)]
+        strategic_action, rule_rationale = self.choose_strategic_action()
+        task = self.choose_assistant_task(strategic_action)
         previous_focus = self.assistant_focus
         turn_resolved = self.turn
 
@@ -728,11 +827,11 @@ class GameState:
         progress = f"{self.world_actions}/{self.world_action_goal()}"
         self.add_chronicle(
             f"Autonomous decision #{format_big_number(decision_number)} on Eternal World "
-            f"{self.world_number}, Turn {turn_resolved} chose {strategic_action} and changed "
-            f"Colony Assistant focus from {previous_focus} to {task}. {action_result} "
-            f"Scenario operations are {progress}; enemy scale is "
-            f"{format_big_number(self.enemy_scale_rating())}, with {gated_count} advanced "
-            "assistant task(s) still technology-gated.",
+            f"{self.world_number}, Turn {turn_resolved} chose {strategic_action}. "
+            f"Rule rationale: {rule_rationale} Colony Assistant focus changed from "
+            f"{previous_focus} to {task}. {action_result} Scenario operations are "
+            f"{progress}; enemy scale is {format_big_number(self.enemy_scale_rating())}, "
+            f"with {gated_count} advanced assistant task(s) still technology-gated.",
             epoch=decision_epoch,
         )
 
