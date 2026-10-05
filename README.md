@@ -77,7 +77,7 @@ Semantic curses colors remain enabled when supported:
 - magenta: research/shrine information;
 - blue: autonomous decisions and scenario information.
 
-The presentation now uses a more compact centered title, dimmed secondary labels, responsive wide/narrow status rows, a percentage-backed Unicode world-progress meter, an MM:SS countdown to the next AI decision, cleaner race-color badges, and Chronicle entries with colored event markers, category labels, aligned timestamps, and softly dimmed continuation lines. The race screen keeps the canon Planet View flag colors from the official manual while making the selected race visually dominant. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
+The presentation now uses a calmer centered identity, titled Unicode section rules, dimmed metadata, responsive wide/compact layouts, a graceful minimum-size screen instead of broken clipping, a percentage-backed Unicode world-progress meter, an MM:SS AI countdown, cleaner race emphasis, and a more deliberate Chronicle event feed with semantic glyphs, fixed category labels, aligned timestamps, and subdued continuation lines. The offline-return notice has also been restyled into a centered status moment that dismisses itself automatically. The race screen keeps the canon Planet View flag colors from the official manual. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
 
 ## Run
 
@@ -93,7 +93,7 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, Chronicle labels, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
 
 ## Canon boundary
 
