@@ -77,7 +77,7 @@ Semantic curses colors remain enabled when supported:
 - magenta: research/shrine information;
 - blue: autonomous decisions and scenario information.
 
-The presentation now uses a tighter centered composition with compact metric rhythm instead of repeated status labels. Race selection keeps the Unicode position indicator but further mutes unselected races so the permanent choice is immediately obvious. The Chronicle remains the focal point: the newest event now carries a strong vertical live rail, highlighted category, and full-width detail treatment, while the older four entries use a softer continuation rail and deliberately subdued text. World progress, AI focus, next research, MM:SS timing, canon race flag colors, responsive wide/compact modes, the minimum-size fallback, and the auto-dismissing offline notice remain. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
+The presentation now uses a calmer mixed-case title, individually colored live metrics, and consistent quiet separators so important values stand out without turning the status area into a wall of labels. Race selection is slightly narrower and more focused, with the selected race carrying the visual weight while alternatives remain subdued. Chronicle recency is now progressive: the newest entry is fully emphasized, the second remains normal, and older history gently fades while retaining its semantic color and timeline rail. World progress, AI focus, next research, MM:SS timing, canon race flag colors, responsive wide/compact modes, the minimum-size fallback, and the auto-dismissing offline notice remain. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
 
 ## Run
 
