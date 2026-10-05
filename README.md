@@ -16,14 +16,29 @@ Exactly once per completed minute, one autonomous decision now:
 
 1. chooses one of Deadlock II's canon strategic verbs: Build, Trade, Research, or Attack;
 2. applies a contextual project rule: Build in the opening third of a world, Trade through the middle third, Attack in the final third, and use every fourth eligible decision for Research so canon technology cannot be starved;
-3. maps that strategic verb to a currently legal canon Colony Assistant focus;
-4. executes the abstract strategic operation without inventing unverified costs, yields, or combat statistics;
-5. advances the turn and autonomous scenario progress;
-6. writes one highly detailed explanation—including the rule rationale—into the Chronicle.
+3. every third otherwise eligible decision applies a race-doctrine pulse derived from verified racial strengths and weaknesses;
+4. maps that strategic verb to a currently legal canon Colony Assistant focus;
+5. executes the abstract strategic operation without inventing unverified costs, yields, casualty totals, hit points, or damage rolls;
+6. advances the turn and autonomous scenario progress;
+7. writes one highly detailed explanation—including the phase rule or racial doctrine rationale—into the Chronicle.
 
-Research decisions automatically complete the next eligible verified technology and keep the unlock permanently. The imported research spine now includes the prerequisite chain needed to make every technology currently represented by the project reachable, including Advanced Medicine, Automation, Hoverway, Fusion Cannon, Neutronic Fuel, Flak, Underwater Tracking, Advanced Structures, Anti-Matter Rifles, and Power Cells.
+The race-doctrine pulse currently maps ChCh-t and Uva Mosk toward Build, Humans toward Trade, Maug toward Research, and Cyth, Re'Lu, and Tarth toward Attack. Those preferred-action mappings and their cadence are project automation rules. The reasons written into the Chronicle come from verified canon traits: for example, Human trade/tax strength, Maug research speed, Tarth military strength, ChCh-t rapid growth/production, and Uva Mosk resource production.
+
+Research decisions automatically complete the next eligible verified technology and keep the unlock permanently. The imported research spine includes the prerequisite chain needed to make every technology currently represented by the project reachable, including Advanced Medicine, Automation, Hoverway, Fusion Cannon, Neutronic Fuel, Flak, Underwater Tracking, Advanced Structures, Anti-Matter Rifles, and Power Cells.
 
 Advanced Colony Assistant tasks remain technology-gated.
+
+## Pre-issued combat through the Chronicle
+
+Attack is now intentionally two-stage without adding a combat tab or panel.
+
+- The first Attack minute selects one current rival and pre-issues the attack order.
+- The Chronicle records the target, the selected race's verified combat identity, and that no outcome has been invented yet.
+- The next autonomous minute resolves that already-issued order before any new strategic order can be considered.
+- Resolution advances scenario military pressure but deliberately does not invent casualty totals, damage rolls, unit counts, or other unsupported combat statistics.
+- If an Attack order reaches the world's operation threshold, world completion waits for the prepared attack to resolve on the following minute.
+
+This two-minute timing is a project rule inspired by Deadlock's battle-order structure; racial combat details remain canon-derived. Examples include Human Berserk infantry, Tarth Juggernaut infantry, Re'Lu Mind Control, Cyth Mind Blast, Maug sabotage-capable Scouts, ChCh-t fast-moving forces, and Uva Mosk improved combat accuracy.
 
 ## Automatic endless worlds
 
@@ -51,7 +66,8 @@ The autonomous design continues to use:
 - Deadlock II's Build / Trade / Research / Attack strategic loop;
 - Great Shrine, Hidden Shrine, and Underwater Shrine classifications;
 - verified technology prerequisites and effects, with the currently imported research table free of unreachable prerequisite dead ends;
-- canon metal values: Iron 1, Steel 5, Endurium 5, Tridium 10.
+- canon metal values: Iron 1, Steel 5, Endurium 5, Tridium 10;
+- verified racial strengths, weaknesses, and combat abilities used as Chronicle doctrine context.
 
 Deadlock II officially includes a Colony Assistant for automated tasks and automated unit/resource production, which is the canon foundation being extended into this project's full-autonomy rule.
 
@@ -93,8 +109,8 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, contextual Build/Trade/Research/Attack selection, legal Colony Assistant focus mapping, offline automation, automatic world rollover, research persistence, full reachability of the imported technology table, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, contextual Build/Trade/Research/Attack selection, all seven race doctrines, every-third doctrine pulses, legal Colony Assistant focus mapping, two-minute pre-issued Attack resolution, pending-order save persistence, offline automation, world rollover after combat resolution, research persistence, full reachability of the imported technology table, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
 
 ## Canon boundary
 
-Named factions, technologies, resources, Colony Assistant tasks, shrine classifications, and other exposed Deadlock II content remain canon-derived. Full autonomy, autonomous scenario-operation goals, procedural topology, permanent-power scoring, suffix encoding, and uncapped scaling are explicit project systems rather than claims about the original 1998 rules.
+Named factions, technologies, resources, Colony Assistant tasks, shrine classifications, racial strengths/weaknesses, and exposed combat abilities remain canon-derived. Full autonomy, race-doctrine cadence, two-minute staged Attack resolution, autonomous scenario-operation goals, procedural topology, permanent-power scoring, suffix encoding, and uncapped scaling are explicit project systems rather than claims about the original 1998 rules.
