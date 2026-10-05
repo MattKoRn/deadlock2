@@ -42,6 +42,20 @@ Enemy scale responds to:
 
 There is deliberately no maximum enemy scale. Later combat/economy systems should consume this rating when assigning actual enemy production, forces, research, and decision quality.
 
+
+## Color system
+
+The curses interface now uses a semantic color layer while remaining a single text view:
+
+- cyan identifies titles, labels, timestamps, and structural information;
+- yellow highlights eternal-world progression and controls;
+- green marks permanent player progression, enabled/healthy state, and ordinary successful actions;
+- red marks enemy scale, blocked tasks, rejected actions, and danger;
+- magenta marks research and shrine-oriented information;
+- blue marks scenario/automation information.
+
+Terminals without color support automatically fall back to readable monochrome attributes. Colors never change simulation outcomes and are presentation-only.
+
 ## Existing rules retained
 
 - Seven canon races: ChCh-t, Cyth, Human, Maug, Re'Lu, Tarth, Uva Mosk.
