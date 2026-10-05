@@ -137,6 +137,29 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
         self.assertEqual(len(loaded.chronicle), 5)
 
+    def test_chronicle_color_semantics_are_stable(self):
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail("Rejected focus because task is blocked."),
+            deadlock2.PAIR_DANGER,
+        )
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail("Completed research order for Metallurgy."),
+            deadlock2.PAIR_RESEARCH,
+        )
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail("Completed Eternal World 12 and generated Eternal World 13."),
+            deadlock2.PAIR_WORLD,
+        )
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail("Colony Assistant decision #4 changed focus."),
+            deadlock2.PAIR_INFO,
+        )
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail("Issued manual Build order."),
+            deadlock2.PAIR_GOOD,
+        )
+
+
 
 if __name__ == "__main__":
     unittest.main()
