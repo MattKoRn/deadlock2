@@ -5,6 +5,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   unittest:
     runs-on: ubuntu-latest
@@ -14,4 +17,23 @@ jobs:
         with:
           python-version: "3.11"
       - name: Run regression suite
-        run: python -m unittest -v
+        continue-on-error: true
+        shell: bash
+        run: |
+          set +e
+          python -m unittest -v > test-results.txt 2>&1
+          status=$?
+          echo "$status" > test-exit-code.txt
+          cat test-results.txt
+          exit 0
+      - name: Upload regression transcript
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unittest-results
+          path: |
+            test-results.txt
+            test-exit-code.txt
+      - name: Enforce regression result
+        shell: bash
+        run: test "$(cat test-exit-code.txt)" -eq 0
