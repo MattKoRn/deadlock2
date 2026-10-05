@@ -35,19 +35,6 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertEqual(report.decisions_applied, 2)
         self.assertEqual(state.assistant_decisions, 2)
 
-    def test_save_round_trip_retains_five_chronicle_entries(self):
-        state = deadlock2.GameState(race="Human")
-        state.researched_technologies.extend(["Electronics", "Metallurgy"])
-        for index in range(7):
-            state.add_chronicle(f"Order {index}.")
-        with tempfile.TemporaryDirectory() as temp_dir:
-            path = Path(temp_dir) / "save.json"
-            deadlock2.silent_save(state, path)
-            loaded = deadlock2.load_state(path)
-        self.assertEqual(loaded.race, "Human")
-        self.assertEqual(len(loaded.chronicle), 5)
-        self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
-
     def test_advanced_resource_tasks_are_technology_gated(self):
         state = deadlock2.GameState()
         self.assertFalse(state.can_use_task("Mine Endurium"))
@@ -81,6 +68,74 @@ class ChronicleRulesTests(unittest.TestCase):
             deadlock2.METAL_VALUES,
             {"Iron": 1, "Steel": 5, "Endurium": 5, "Tridium": 10},
         )
+
+    def test_random_map_is_repeatable_by_seed_and_changes_with_seed(self):
+        first = deadlock2.build_random_map("Human", seed=12345)
+        second = deadlock2.build_random_map("Human", seed=12345)
+        third = deadlock2.build_random_map("Human", seed=54321)
+        self.assertEqual(first, second)
+        self.assertNotEqual(first, third)
+        self.assertNotIn("Human", first.rival_races)
+
+    def test_world_victory_generates_new_map_and_keeps_research(self):
+        state = deadlock2.GameState(race="Human")
+        state.world_map = deadlock2.build_random_map("Human", seed=100)
+        state.researched_technologies.extend(["Electronics", "Metallurgy"])
+        old_scale = state.enemy_scale_rating()
+        state.complete_world(seed=200)
+        self.assertEqual(state.world_number, 2)
+        self.assertEqual(state.worlds_completed, 1)
+        self.assertGreater(state.permanent_power, 0)
+        self.assertEqual(state.world_map.seed, 200)
+        self.assertEqual(state.researched_technologies, ["Electronics", "Metallurgy"])
+        self.assertGreater(state.enemy_scale_rating(), old_scale)
+
+    def test_enemy_scale_never_caps(self):
+        state = deadlock2.GameState(
+            race="Human",
+            world_number=10**50,
+            worlds_completed=10**50,
+            permanent_power=10**200,
+        )
+        first = state.enemy_scale_rating()
+        state.world_number += 1
+        state.permanent_power *= 10**20
+        second = state.enemy_scale_rating()
+        self.assertGreater(second, first)
+        self.assertGreater(second, 10**50)
+
+    def test_suffixes_continue_beyond_trillion_without_cap(self):
+        self.assertEqual(deadlock2.format_big_number(10**3), "1K")
+        self.assertEqual(deadlock2.format_big_number(10**6), "1M")
+        self.assertEqual(deadlock2.format_big_number(10**9), "1B")
+        self.assertEqual(deadlock2.format_big_number(10**12), "1T")
+        self.assertEqual(deadlock2.format_big_number(10**15), "1aa")
+        self.assertEqual(deadlock2.format_big_number(10**18), "1ab")
+        huge = deadlock2.format_big_number(10**300)
+        self.assertTrue(huge.startswith("1"))
+        self.assertGreater(len(huge), 2)
+
+    def test_save_round_trip_keeps_eternal_progress(self):
+        state = deadlock2.GameState(
+            race="Human",
+            world_number=10**25,
+            worlds_completed=10**25 - 1,
+            permanent_power=10**150,
+        )
+        state.world_map = deadlock2.build_random_map("Human", seed=777)
+        state.researched_technologies.extend(["Electronics", "Metallurgy"])
+        for index in range(7):
+            state.add_chronicle(f"Order {index}.")
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "save.json"
+            deadlock2.silent_save(state, path)
+            loaded = deadlock2.load_state(path)
+        self.assertEqual(loaded.world_number, 10**25)
+        self.assertEqual(loaded.worlds_completed, 10**25 - 1)
+        self.assertEqual(loaded.permanent_power, 10**150)
+        self.assertEqual(loaded.world_map.seed, 777)
+        self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
+        self.assertEqual(len(loaded.chronicle), 5)
 
 
 if __name__ == "__main__":
