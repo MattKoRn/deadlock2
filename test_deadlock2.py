@@ -5,7 +5,7 @@ from pathlib import Path
 import deadlock2
 
 
-class ChronicleRulesTests(unittest.TestCase):
+class AutonomousChronicleRulesTests(unittest.TestCase):
     def test_chronicle_keeps_only_five_actions(self):
         state = deadlock2.GameState()
         for index in range(8):
@@ -18,22 +18,38 @@ class ChronicleRulesTests(unittest.TestCase):
         stamp = deadlock2.timestamp_12h(1_700_000_000)
         self.assertRegex(stamp, r"^\d{1,2}:\d{2} (AM|PM)$")
 
-    def test_assistant_applies_exactly_one_decision_per_full_minute(self):
+    def test_bootstrap_selects_race_and_world_without_player_input(self):
+        state = deadlock2.GameState()
+        state.bootstrap_autonomous_campaign(race="Human", seed=123, epoch=1000.0)
+        self.assertEqual(state.race, "Human")
+        self.assertEqual(state.world_map.seed, 123)
+        self.assertEqual(state.last_assistant_epoch, 1000.0)
+
+    def test_one_decision_per_full_minute_executes_actions(self):
         state = deadlock2.GameState(last_assistant_epoch=1_000.0)
+        state.bootstrap_autonomous_campaign(race="Human", seed=10, epoch=1_000.0)
         applied = state.apply_due_assistant_decisions(1_181.0)
         self.assertEqual(applied, 3)
         self.assertEqual(state.assistant_decisions, 3)
+        self.assertEqual(state.strategic_actions, 3)
+        self.assertEqual(state.world_actions, 3)
+        self.assertEqual(state.turn, 4)
         self.assertEqual(state.last_assistant_epoch, 1_180.0)
 
-    def test_offline_progress_uses_same_minute_cadence(self):
-        state = deadlock2.GameState(
-            last_assistant_epoch=2_000.0,
-            last_active_epoch=2_000.0,
-        )
+    def test_offline_progress_uses_same_autonomous_cadence(self):
+        state = deadlock2.GameState()
+        state.bootstrap_autonomous_campaign(race="Human", seed=10, epoch=2_000.0)
         report = deadlock2.apply_offline_progress(state, now=2_125.0)
         self.assertEqual(report.away_seconds, 125)
         self.assertEqual(report.decisions_applied, 2)
         self.assertEqual(state.assistant_decisions, 2)
+
+    def test_no_manual_gameplay_methods_remain(self):
+        self.assertFalse(hasattr(deadlock2.GameState, "issue_manual_order"))
+        self.assertFalse(hasattr(deadlock2.GameState, "toggle_assistant"))
+        self.assertFalse(hasattr(deadlock2.GameState, "set_assistant_focus"))
+        self.assertFalse(hasattr(deadlock2.GameState, "end_turn"))
+        self.assertFalse(hasattr(deadlock2.GameState, "choose_race"))
 
     def test_advanced_resource_tasks_are_technology_gated(self):
         state = deadlock2.GameState()
@@ -57,8 +73,15 @@ class ChronicleRulesTests(unittest.TestCase):
         state.researched_technologies.extend(["Nuclear Fusion", "Electronics"])
         self.assertIn("Chaos Computer", state.eligible_technologies())
 
+    def test_autonomous_research_unlocks_permanently(self):
+        state = deadlock2.GameState()
+        result = state.resolve_autonomous_research()
+        self.assertEqual(state.researched_technologies, ["Nuclear Fusion"])
+        self.assertIn("Nuclear Fusion", result)
+
     def test_assistant_never_selects_blocked_task(self):
-        state = deadlock2.GameState(last_assistant_epoch=1_000.0)
+        state = deadlock2.GameState()
+        state.bootstrap_autonomous_campaign(race="Human", seed=20, epoch=1_000.0)
         for minute in range(1, 20):
             state.make_assistant_decision(1_000.0 + minute * 60)
             self.assertTrue(state.can_use_task(state.assistant_focus))
@@ -77,7 +100,18 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertNotEqual(first, third)
         self.assertNotIn("Human", first.rival_races)
 
-    def test_world_victory_generates_new_map_and_keeps_research(self):
+    def test_autonomous_goal_rolls_into_next_world(self):
+        state = deadlock2.GameState()
+        state.bootstrap_autonomous_campaign(race="Human", seed=100, epoch=1_000.0)
+        state.world_actions = state.world_action_goal() - 1
+        old_world = state.world_number
+        state.make_assistant_decision(1_060.0)
+        self.assertEqual(state.world_number, old_world + 1)
+        self.assertEqual(state.worlds_completed, 1)
+        self.assertEqual(state.world_actions, 0)
+        self.assertGreater(state.permanent_power, 0)
+
+    def test_world_completion_keeps_research(self):
         state = deadlock2.GameState(race="Human")
         state.world_map = deadlock2.build_random_map("Human", seed=100)
         state.researched_technologies.extend(["Electronics", "Metallurgy"])
@@ -85,7 +119,6 @@ class ChronicleRulesTests(unittest.TestCase):
         state.complete_world(seed=200)
         self.assertEqual(state.world_number, 2)
         self.assertEqual(state.worlds_completed, 1)
-        self.assertGreater(state.permanent_power, 0)
         self.assertEqual(state.world_map.seed, 200)
         self.assertEqual(state.researched_technologies, ["Electronics", "Metallurgy"])
         self.assertGreater(state.enemy_scale_rating(), old_scale)
@@ -104,7 +137,7 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertGreater(second, first)
         self.assertGreater(second, 10**50)
 
-    def test_suffixes_continue_beyond_trillion_without_cap(self):
+    def test_suffixes_continue_without_cap(self):
         self.assertEqual(deadlock2.format_big_number(10**3), "1K")
         self.assertEqual(deadlock2.format_big_number(10**6), "1M")
         self.assertEqual(deadlock2.format_big_number(10**9), "1B")
@@ -115,12 +148,14 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertTrue(huge.startswith("1"))
         self.assertGreater(len(huge), 2)
 
-    def test_save_round_trip_keeps_eternal_progress(self):
+    def test_save_round_trip_keeps_autonomous_eternal_progress(self):
         state = deadlock2.GameState(
             race="Human",
             world_number=10**25,
             worlds_completed=10**25 - 1,
             permanent_power=10**150,
+            strategic_actions=10**30,
+            world_actions=17,
         )
         state.world_map = deadlock2.build_random_map("Human", seed=777)
         state.researched_technologies.extend(["Electronics", "Metallurgy"])
@@ -133,32 +168,27 @@ class ChronicleRulesTests(unittest.TestCase):
         self.assertEqual(loaded.world_number, 10**25)
         self.assertEqual(loaded.worlds_completed, 10**25 - 1)
         self.assertEqual(loaded.permanent_power, 10**150)
+        self.assertEqual(loaded.strategic_actions, 10**30)
+        self.assertEqual(loaded.world_actions, 17)
         self.assertEqual(loaded.world_map.seed, 777)
         self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
         self.assertEqual(len(loaded.chronicle), 5)
 
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
-            deadlock2.chronicle_pair_for_detail("Rejected focus because task is blocked."),
-            deadlock2.PAIR_DANGER,
-        )
-        self.assertEqual(
-            deadlock2.chronicle_pair_for_detail("Completed research order for Metallurgy."),
-            deadlock2.PAIR_RESEARCH,
-        )
-        self.assertEqual(
-            deadlock2.chronicle_pair_for_detail("Completed Eternal World 12 and generated Eternal World 13."),
-            deadlock2.PAIR_WORLD,
-        )
-        self.assertEqual(
-            deadlock2.chronicle_pair_for_detail("Colony Assistant decision #4 changed focus."),
+            deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
             deadlock2.PAIR_INFO,
         )
         self.assertEqual(
-            deadlock2.chronicle_pair_for_detail("Issued manual Build order."),
-            deadlock2.PAIR_GOOD,
+            deadlock2.chronicle_pair_for_detail("Completed research for Metallurgy."),
+            deadlock2.PAIR_RESEARCH,
         )
-
+        self.assertEqual(
+            deadlock2.chronicle_pair_for_detail(
+                "Completed Eternal World 12 and generated Eternal World 13."
+            ),
+            deadlock2.PAIR_WORLD,
+        )
 
 
 if __name__ == "__main__":
