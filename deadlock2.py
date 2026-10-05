@@ -201,6 +201,20 @@ def progress_meter(current: int, total: int, width: int = 16) -> str:
     return "●" * filled + "·" * (safe_width - filled)
 
 
+def polished_progress_bar(current: int, total: int, width: int = 16) -> str:
+    """Return a quieter Unicode bar for the live campaign presentation."""
+    safe_total = max(1, int(total))
+    safe_width = max(4, int(width))
+    safe_current = max(0, min(int(current), safe_total))
+    filled = min(safe_width, (safe_current * safe_width) // safe_total)
+    return "━" * filled + "─" * (safe_width - filled)
+
+
+def chronicle_gap(index: int) -> int:
+    """Keep breathing room after the live event while stacking history tightly."""
+    return 1 if max(0, int(index)) == 0 else 0
+
+
 def seconds_until_next_decision(
     last_decision_epoch: float,
     now: Optional[float] = None,
@@ -1274,7 +1288,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
 
     goal = state.world_action_goal()
     meter_width = 24 if wide else 13
-    meter = progress_meter(state.world_actions, goal, meter_width)
+    meter = polished_progress_bar(state.world_actions, goal, meter_width)
     percent = progress_percent(state.world_actions, goal)
     eligible = state.eligible_technologies()
     next_tech = eligible[0] if eligible else "awaiting prerequisites"
@@ -1411,18 +1425,20 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             )
             row += 1
 
-        if row < footer_top:
-            row += 1
+        for _ in range(chronicle_gap(index)):
+            if row < footer_top:
+                row += 1
 
     draw_divider(stdscr, height - 2, content_width, x=content_x)
 
     footer_segments = (
         ("● AUTO", ui_attr(PAIR_GOOD, bold=True)),
-        ("   ·   ", ui_attr(PAIR_MUTED, dim=True)),
+        ("   ", ui_attr(PAIR_MUTED)),
+        ("NEXT ", ui_attr(PAIR_MUTED, dim=True)),
         (countdown, ui_attr(PAIR_WARNING, bold=True)),
         ("   ·   SAVE 1s", ui_attr(PAIR_MUTED, dim=True)),
         ("   ·   OFFLINE", ui_attr(PAIR_INFO, dim=True)),
-        ("   ·   Q QUIT", ui_attr(PAIR_MUTED, dim=True)),
+        ("   ·   Q", ui_attr(PAIR_MUTED, bold=True)),
     )
     safe_add_centered_segments(
         stdscr,
