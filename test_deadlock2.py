@@ -308,6 +308,13 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertLessEqual(len(compact), 24)
         self.assertNotIn("\n", compact)
 
+    def test_segment_width_matches_visible_text(self):
+        segments = (("POWER ", 0), ("12K", 0), (" · ", 0), ("NEXT ", 0), ("00:42", 0))
+        self.assertEqual(
+            deadlock2.segments_width(segments),
+            len("POWER 12K · NEXT 00:42"),
+        )
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
