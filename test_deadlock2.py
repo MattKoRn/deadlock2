@@ -180,6 +180,41 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
         self.assertEqual(len(loaded.chronicle), 5)
 
+    def test_canon_race_flag_colors_are_complete(self):
+        self.assertEqual(set(deadlock2.RACE_FLAG_COLORS), set(deadlock2.RACES))
+        self.assertEqual(deadlock2.RACE_FLAG_COLORS["ChCh-t"], "Yellow")
+        self.assertEqual(deadlock2.RACE_FLAG_COLORS["Tarth"], "Red")
+        self.assertEqual(deadlock2.RACE_FLAG_COLORS["Uva Mosk"], "Green")
+
+    def test_progress_meter_is_bounded_and_readable(self):
+        self.assertEqual(deadlock2.progress_meter(0, 10, 6), "······")
+        self.assertEqual(deadlock2.progress_meter(10, 10, 6), "●●●●●●")
+        self.assertEqual(deadlock2.progress_meter(5, 10, 6), "●●●···")
+        self.assertEqual(len(deadlock2.progress_meter(500, 10, 6)), 6)
+
+    def test_decision_countdown_tracks_one_minute_cadence(self):
+        self.assertEqual(deadlock2.seconds_until_next_decision(1000.0, 1000.0), 60)
+        self.assertEqual(deadlock2.seconds_until_next_decision(1000.0, 1030.1), 30)
+        self.assertEqual(deadlock2.seconds_until_next_decision(1000.0, 1060.0), 0)
+
+    def test_chronicle_labels_are_compact_and_semantic(self):
+        self.assertEqual(
+            deadlock2.chronicle_label_for_detail("Autonomous decision #8 chose Build."),
+            "AI",
+        )
+        self.assertEqual(
+            deadlock2.chronicle_label_for_detail("Applied offline progress after 4 minutes."),
+            "OFFLINE",
+        )
+        self.assertEqual(
+            deadlock2.chronicle_label_for_detail("Research completed Metallurgy."),
+            "RESEARCH",
+        )
+        self.assertEqual(
+            deadlock2.chronicle_label_for_detail("Completed Eternal World 7."),
+            "WORLD",
+        )
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
