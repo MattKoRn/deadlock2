@@ -84,13 +84,20 @@ Deadlock II officially includes a Colony Assistant for automated tasks and autom
 
 The Chronicle remains the center of the game and retains only the newest five actions with 12-hour timestamps and no seconds.
 
-The curses presentation now uses one centralized Unicode symbol registry for Chronicle categories, selection markers, rails, separators, progress bars, and dividers. At startup the game checks for **Noto Sans Symbols 2**. If the font is missing, it automatically downloads the official Noto release and installs it for the current user without requiring administrator rights:
+The curses presentation uses one centralized Unicode symbol registry for Chronicle categories, selection markers, rails, separators, progress bars, and dividers. At startup the game now guarantees a **two-font OFL-licensed Noto bundle** instead of assuming one symbol font covers the whole terminal:
 
-- Windows: the per-user Fonts directory plus the current-user font registry, followed by a font-change broadcast;
+- **Noto Sans Mono** supplies common terminal, line, and box-drawing coverage such as `─`, `┃`, and progress-bar glyphs.
+- **Noto Sans Symbols** supplies the decorative Chronicle marks such as `◆`, `✦`, `◌`, and `●`.
+
+If either guaranteed font file is missing, the game downloads the official Google Fonts copy and installs it for the current user without requiring administrator rights:
+
+- Windows: the per-user Fonts directory plus the current-user font registry and a desktop-wide font-change broadcast;
 - macOS: `~/Library/Fonts`;
-- Linux: `~/.local/share/fonts`, followed by `fc-cache` when available.
+- Linux: `~/.local/share/fonts/deadlock2`, followed by `fc-cache` when available.
 
-If the download or font-cache refresh fails, startup continues safely using the terminal's existing Unicode fonts instead of aborting. Successful automatic installation, or a recoverable installation failure, is recorded as a detailed Chronicle action rather than opening a new settings screen or panel.
+Windows registration deliberately exposes the fonts to the desktop session rather than using a process-private font registration that the parent terminal cannot see. Downloads are size-limited and validated as actual font files before being installed atomically.
+
+A terminal emulator may not change its active fallback font in the middle of a running session. Therefore, after a fresh install—or if the download fails—the current run automatically switches to a conservative Unicode-only glyph vocabulary using highly common marks such as `◇`, `◆`, `○`, `●`, `│`, and `─`. The full visual vocabulary returns automatically on a later launch once the fonts are already available. Installation success or a recoverable failure is written into the existing Chronicle rather than opening a new settings screen or panel.
 
 Semantic curses colors remain enabled when supported:
 
@@ -117,7 +124,7 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, contextual Build/Trade/Research/Attack selection, all seven race doctrines, every-third doctrine pulses, legal Colony Assistant focus mapping, two-minute pre-issued Attack resolution, pending-order save persistence, offline automation, world rollover after combat resolution, research persistence, full reachability of the imported technology table, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, automatic symbol-font target selection, official-release font archive selection, centralized Unicode symbol roles, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, contextual Build/Trade/Research/Attack selection, all seven race doctrines, every-third doctrine pulses, legal Colony Assistant focus mapping, two-minute pre-issued Attack resolution, pending-order save persistence, offline automation, world rollover after combat resolution, research persistence, full reachability of the imported technology table, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, automatic two-font symbol-bundle target selection, font payload validation, conservative Unicode fallback mode, centralized Unicode symbol roles, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
 
 ## Canon boundary
 
