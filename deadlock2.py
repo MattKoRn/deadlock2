@@ -320,6 +320,22 @@ def status_separator() -> tuple[str, int]:
     return ("   ·   ", ui_attr(PAIR_MUTED, dim=True))
 
 
+def split_chronicle_detail(detail: str) -> tuple[str, str]:
+    """Split a detailed Chronicle sentence into a strong lead and quiet remainder."""
+    clean = " ".join(str(detail).split())
+    for separator in ("; ", ". "):
+        if separator in clean:
+            lead, remainder = clean.split(separator, 1)
+            punctuation = ";" if separator.startswith(";") else "."
+            return lead + punctuation, remainder
+    return clean, ""
+
+
+def compact_chronicle_detail(detail: str, width: int) -> str:
+    """Keep older Chronicle history to one elegant line without losing recency."""
+    return fit_text(" ".join(str(detail).split()), max(1, int(width)))
+
+
 @dataclass(frozen=True)
 class TechnologyRule:
     prerequisites: tuple[str, ...]
@@ -1251,7 +1267,6 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         detail_pair = chronicle_pair_for_detail(entry.detail)
         prefix_width = 21 if wide else 18
         detail_width = max(14, content_width - prefix_width)
-        lines = list(wrapped_lines(entry.detail, detail_width))
         recency_attr = chronicle_recency_attr(detail_pair, index)
 
         safe_addstr(
@@ -1284,23 +1299,10 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         )
 
         if newest and row + 1 < footer_top:
+            lead, remainder = split_chronicle_detail(entry.detail)
+            lead_lines = list(wrapped_lines(lead, max(14, content_width - 4)))
             row += 1
-            safe_addstr(
-                stdscr,
-                row,
-                content_x,
-                rail,
-                ui_attr(detail_pair, bold=True),
-            )
-            safe_addstr(
-                stdscr,
-                row,
-                content_x + 4,
-                lines[0],
-                ui_attr(detail_pair, bold=True),
-            )
-            for continuation in lines[1:]:
-                row += 1
+            for lead_index, line in enumerate(lead_lines):
                 if row >= footer_top:
                     break
                 safe_addstr(
@@ -1308,43 +1310,50 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                     row,
                     content_x,
                     rail,
-                    ui_attr(PAIR_MUTED, dim=True),
+                    ui_attr(detail_pair, bold=True),
                 )
                 safe_addstr(
                     stdscr,
                     row,
                     content_x + 4,
-                    continuation,
-                    ui_attr(PAIR_MUTED, dim=True),
+                    line,
+                    ui_attr(detail_pair, bold=lead_index == 0),
                 )
+                row += 1
+
+            if remainder and row < footer_top:
+                remainder_lines = list(
+                    wrapped_lines(remainder, max(14, content_width - 4))
+                )
+                for line in remainder_lines:
+                    if row >= footer_top:
+                        break
+                    safe_addstr(
+                        stdscr,
+                        row,
+                        content_x,
+                        rail,
+                        ui_attr(PAIR_MUTED, dim=True),
+                    )
+                    safe_addstr(
+                        stdscr,
+                        row,
+                        content_x + 4,
+                        line,
+                        ui_attr(PAIR_MUTED, dim=True),
+                    )
+                    row += 1
         else:
+            one_line = compact_chronicle_detail(entry.detail, detail_width)
             safe_addstr(
                 stdscr,
                 row,
                 content_x + prefix_width,
-                lines[0],
+                one_line,
                 recency_attr,
             )
-            for continuation in lines[1:]:
-                row += 1
-                if row >= footer_top:
-                    break
-                safe_addstr(
-                    stdscr,
-                    row,
-                    content_x,
-                    rail,
-                    ui_attr(PAIR_MUTED, dim=True),
-                )
-                safe_addstr(
-                    stdscr,
-                    row,
-                    content_x + prefix_width,
-                    continuation,
-                    ui_attr(PAIR_MUTED, dim=True),
-                )
+            row += 1
 
-        row += 1
         if row < footer_top:
             row += 1
 
