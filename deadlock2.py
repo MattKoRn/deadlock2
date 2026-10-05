@@ -884,6 +884,25 @@ def safe_add_segments_at(
         cursor += len(text)
 
 
+def segments_width(segments: Iterable[tuple[str, int]]) -> int:
+    """Return the visible text width of a segmented status line."""
+    return sum(len(text) for text, _ in segments)
+
+
+def safe_add_centered_segments(
+    window: "curses._CursesWindow",
+    y: int,
+    left: int,
+    width: int,
+    segments: Iterable[tuple[str, int]],
+) -> None:
+    """Center a colored segmented row inside the shared content column."""
+    stable = tuple(segments)
+    total = segments_width(stable)
+    x = max(int(left), int(left) + max(0, (int(width) - total) // 2))
+    safe_add_segments_at(window, y, x, stable)
+
+
 def show_offline_popup(
     stdscr: "curses._CursesWindow",
     report: OfflineReport,
@@ -1128,7 +1147,7 @@ def render_race_selection(
         ui_attr(PAIR_WARNING, bold=True),
     )
 
-    footer = "ONE CHOICE  ·  FULL AUTONOMY AFTERWARD"
+    footer = "ONE PERMANENT CHOICE  ·  FULL AUTONOMY AFTERWARD"
     safe_addstr(
         stdscr,
         height - 1,
@@ -1200,7 +1219,13 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                 (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD, bold=True)),
             ]
         )
-    safe_add_segments_at(stdscr, 3, content_x, tuple(live_status))
+    safe_add_centered_segments(
+        stdscr,
+        3,
+        content_x,
+        content_width,
+        tuple(live_status),
+    )
 
     if world is not None:
         world_status = [
@@ -1219,7 +1244,13 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             ("SHRINES ", ui_attr(PAIR_MUTED, dim=True)),
             (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
         ]
-        safe_add_segments_at(stdscr, 4, content_x, tuple(world_status))
+        safe_add_centered_segments(
+            stdscr,
+            4,
+            content_x,
+            content_width,
+            tuple(world_status),
+        )
 
     goal = state.world_action_goal()
     meter_width = 24 if wide else 13
@@ -1243,7 +1274,13 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                 (next_tech, ui_attr(PAIR_RESEARCH)),
             ]
         )
-    safe_add_segments_at(stdscr, 5, content_x, tuple(progress_line))
+    safe_add_centered_segments(
+        stdscr,
+        5,
+        content_x,
+        content_width,
+        tuple(progress_line),
+    )
 
     draw_divider(
         stdscr,
@@ -1255,7 +1292,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
 
     entries = list(reversed(state.chronicle))
     row = 9
-    footer_top = height - 3
+    footer_top = height - 2
     for index, entry in enumerate(entries):
         if row >= footer_top:
             break
@@ -1357,30 +1394,22 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         if row < footer_top:
             row += 1
 
-    draw_divider(stdscr, height - 3, content_width, x=content_x)
+    draw_divider(stdscr, height - 2, content_width, x=content_x)
 
-    footer_status = fit_text(
-        f"● AUTONOMY ACTIVE   ·   next {countdown}   ·   autosave 1s   ·   offline enabled",
-        content_width,
+    footer_segments = (
+        ("● ", ui_attr(PAIR_GOOD, bold=True)),
+        ("AUTONOMY", ui_attr(PAIR_GOOD, bold=True)),
+        ("   ·   NEXT ", ui_attr(PAIR_MUTED, dim=True)),
+        (countdown, ui_attr(PAIR_WARNING, bold=True)),
+        ("   ·   AUTOSAVE 1s", ui_attr(PAIR_MUTED, dim=True)),
+        ("   ·   Q QUIT", ui_attr(PAIR_MUTED, dim=True)),
     )
-    safe_addstr(
-        stdscr,
-        height - 2,
-        centered_in(content_x, content_width, footer_status),
-        footer_status,
-        ui_attr(PAIR_GOOD, bold=True),
-    )
-
-    footer = fit_text(
-        "Q quit   ·   permanent progression   ·   Chronicle retains 5",
-        content_width,
-    )
-    safe_addstr(
+    safe_add_centered_segments(
         stdscr,
         height - 1,
-        centered_in(content_x, content_width, footer),
-        footer,
-        ui_attr(PAIR_MUTED, dim=True),
+        content_x,
+        content_width,
+        footer_segments,
     )
     stdscr.refresh()
 
