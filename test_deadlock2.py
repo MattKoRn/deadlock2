@@ -124,6 +124,31 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(action, "Attack")
         self.assertIn("final third", reason)
 
+    def test_race_doctrine_covers_all_seven_canon_races(self):
+        self.assertEqual(set(deadlock2.RACE_DOCTRINES), set(deadlock2.RACES))
+        self.assertEqual(deadlock2.RACE_DOCTRINES["Human"]["preferred_action"], "Trade")
+        self.assertEqual(deadlock2.RACE_DOCTRINES["Maug"]["preferred_action"], "Research")
+        self.assertEqual(deadlock2.RACE_DOCTRINES["Tarth"]["preferred_action"], "Attack")
+        self.assertIn("strongest", deadlock2.RACE_DOCTRINES["Tarth"]["strength"])
+
+    def test_every_third_decision_uses_race_doctrine_pulse(self):
+        expected = {
+            "ChCh-t": "Build",
+            "Cyth": "Attack",
+            "Human": "Trade",
+            "Maug": "Research",
+            "Re'Lu": "Attack",
+            "Tarth": "Attack",
+            "Uva Mosk": "Build",
+        }
+        for index, (race, action) in enumerate(expected.items()):
+            state = deadlock2.GameState()
+            state.select_race(race, seed=100 + index, epoch=1_000.0)
+            state.assistant_decisions = 2
+            chosen, reason = state.choose_strategic_action()
+            self.assertEqual(chosen, action)
+            self.assertIn(f"{race} doctrine", reason)
+
     def test_assistant_focus_follows_context_without_using_locked_tasks(self):
         state = deadlock2.GameState()
         state.select_race("Human", seed=21, epoch=1_000.0)
@@ -155,15 +180,42 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertNotEqual(first, third)
         self.assertNotIn("Human", first.rival_races)
 
-    def test_autonomous_goal_rolls_into_next_world(self):
+    def test_attack_is_preissued_then_resolved_on_next_minute(self):
+        state = deadlock2.GameState()
+        state.select_race("Human", seed=101, epoch=1_000.0)
+        goal = state.world_action_goal()
+        state.world_actions = (goal * 2 + 2) // 3
+        state.assistant_decisions = 4
+
+        state.make_assistant_decision(1_060.0)
+        self.assertIsNotNone(state.pending_attack)
+        target = state.pending_attack.target_race
+        self.assertIn(target, state.world_map.rival_races)
+        self.assertIn("pre-issued against", state.chronicle[-1].detail)
+
+        state.make_assistant_decision(1_120.0)
+        self.assertIsNone(state.pending_attack)
+        self.assertIn(
+            f"resolved the pre-issued Attack against {target}",
+            state.chronicle[-1].detail,
+        )
+        self.assertEqual(state.assistant_decisions, 6)
+
+    def test_autonomous_goal_waits_for_preissued_attack_resolution(self):
         state = deadlock2.GameState()
         state.select_race("Human", seed=100, epoch=1_000.0)
         state.world_actions = state.world_action_goal() - 1
         old_world = state.world_number
+
         state.make_assistant_decision(1_060.0)
+        self.assertEqual(state.world_number, old_world)
+        self.assertIsNotNone(state.pending_attack)
+
+        state.make_assistant_decision(1_120.0)
         self.assertEqual(state.world_number, old_world + 1)
         self.assertEqual(state.worlds_completed, 1)
         self.assertEqual(state.world_actions, 0)
+        self.assertIsNone(state.pending_attack)
         self.assertGreater(state.permanent_power, 0)
 
     def test_world_completion_keeps_research(self):
@@ -228,6 +280,25 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(loaded.world_map.seed, 777)
         self.assertEqual(loaded.researched_technologies, ["Electronics", "Metallurgy"])
         self.assertEqual(len(loaded.chronicle), 5)
+
+    def test_pending_attack_survives_save_round_trip(self):
+        state = deadlock2.GameState()
+        state.select_race("Tarth", seed=333, epoch=1_000.0)
+        target = state.world_map.rival_races[0]
+        state.pending_attack = deadlock2.AttackIntent(
+            target_race=target,
+            issued_world=state.world_number,
+            issued_turn=7,
+            doctrine=state.race_doctrine()["combat"],
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "save.json"
+            deadlock2.silent_save(state, path)
+            loaded = deadlock2.load_state(path)
+        self.assertIsNotNone(loaded.pending_attack)
+        self.assertEqual(loaded.pending_attack.target_race, target)
+        self.assertEqual(loaded.pending_attack.issued_turn, 7)
+        self.assertIn("Juggernaut", loaded.pending_attack.doctrine)
 
     def test_canon_race_flag_colors_are_complete(self):
         self.assertEqual(set(deadlock2.RACE_FLAG_COLORS), set(deadlock2.RACES))
