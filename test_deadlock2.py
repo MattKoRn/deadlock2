@@ -16,7 +16,7 @@ class ChronicleRulesTests(unittest.TestCase):
 
     def test_timestamp_has_no_seconds(self):
         stamp = deadlock2.timestamp_12h(1_700_000_000)
-        self.assertRegex(stamp, r"^\\d{1,2}:\\d{2} (AM|PM)$")
+        self.assertRegex(stamp, r"^\d{1,2}:\d{2} (AM|PM)$")
 
     def test_assistant_applies_exactly_one_decision_per_full_minute(self):
         state = deadlock2.GameState(last_assistant_epoch=1_000.0)
