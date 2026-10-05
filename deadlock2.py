@@ -33,6 +33,71 @@ AUTOSAVE_INTERVAL_SECONDS = 1.0
 ASSISTANT_INTERVAL_SECONDS = 60.0
 CHRONICLE_LIMIT = 5
 
+# Semantic terminal colors. These are presentation-only and never alter game rules.
+PAIR_TITLE = 1
+PAIR_WORLD = 2
+PAIR_GOOD = 3
+PAIR_WARNING = 4
+PAIR_DANGER = 5
+PAIR_RESEARCH = 6
+PAIR_INFO = 7
+COLORS_ACTIVE = False
+
+
+def init_colors() -> None:
+    """Enable a readable Deadlock-inspired palette with safe monochrome fallback."""
+    global COLORS_ACTIVE
+    COLORS_ACTIVE = False
+    try:
+        if not curses.has_colors():
+            return
+        curses.start_color()
+        try:
+            curses.use_default_colors()
+            background = -1
+        except curses.error:
+            background = curses.COLOR_BLACK
+
+        palette = (
+            (PAIR_TITLE, curses.COLOR_CYAN),
+            (PAIR_WORLD, curses.COLOR_YELLOW),
+            (PAIR_GOOD, curses.COLOR_GREEN),
+            (PAIR_WARNING, curses.COLOR_YELLOW),
+            (PAIR_DANGER, curses.COLOR_RED),
+            (PAIR_RESEARCH, curses.COLOR_MAGENTA),
+            (PAIR_INFO, curses.COLOR_BLUE),
+        )
+        for pair, foreground in palette:
+            curses.init_pair(pair, foreground, background)
+        COLORS_ACTIVE = True
+    except curses.error:
+        COLORS_ACTIVE = False
+
+
+def ui_attr(pair: int, *, bold: bool = False, reverse: bool = False) -> int:
+    """Return a curses attribute that remains useful on monochrome terminals."""
+    attr = curses.color_pair(pair) if COLORS_ACTIVE else 0
+    if bold:
+        attr |= curses.A_BOLD
+    if reverse:
+        attr |= curses.A_REVERSE
+    return attr
+
+
+def chronicle_pair_for_detail(detail: str) -> int:
+    """Choose a semantic Chronicle color without changing the Chronicle content."""
+    lowered = detail.lower()
+    if "rejected" in lowered or "could not" in lowered or "blocked" in lowered:
+        return PAIR_DANGER
+    if "completed eternal world" in lowered or "generated eternal world" in lowered:
+        return PAIR_WORLD
+    if "research" in lowered:
+        return PAIR_RESEARCH
+    if "offline progress" in lowered or "colony assistant decision" in lowered:
+        return PAIR_INFO
+    return PAIR_GOOD
+
+
 RACES = (
     "ChCh-t",
     "Cyth",
@@ -592,6 +657,18 @@ def safe_addstr(
         pass
 
 
+def safe_add_segments(
+    window: "curses._CursesWindow",
+    y: int,
+    segments: Iterable[tuple[str, int]],
+) -> None:
+    """Draw one status line from independently colored text segments."""
+    x = 0
+    for text, attr in segments:
+        safe_addstr(window, y, x, text, attr)
+        x += len(text)
+
+
 def show_offline_popup(
     stdscr: "curses._CursesWindow",
     report: OfflineReport,
@@ -615,7 +692,7 @@ def show_offline_popup(
             start_y + index,
             3,
             line,
-            curses.A_BOLD if index == 0 else 0,
+            ui_attr(PAIR_INFO, bold=index == 0),
         )
     stdscr.refresh()
     stdscr.nodelay(False)
@@ -630,17 +707,18 @@ def render(
 ) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
-    safe_addstr(stdscr, 0, 0, APP_TITLE, curses.A_BOLD)
+    safe_addstr(stdscr, 0, 0, APP_TITLE, ui_attr(PAIR_TITLE, bold=True))
 
     if not state.race:
-        safe_addstr(stdscr, 2, 0, "Choose a canon race by pressing 1-7:", curses.A_BOLD)
+        safe_addstr(stdscr, 2, 0, "Choose a canon race by pressing 1-7:", ui_attr(PAIR_GOOD, bold=True))
         for idx, race in enumerate(RACES, start=1):
-            safe_addstr(stdscr, 2 + idx, 2, f"{idx}. {race}")
+            safe_addstr(stdscr, 2 + idx, 2, f"{idx}. {race}", ui_attr(PAIR_INFO))
         safe_addstr(
             stdscr,
             min(height - 2, 11),
             0,
             "Q quits. Autosave is silent every second. Campaign progression never resets.",
+            ui_attr(PAIR_WARNING),
         )
         stdscr.refresh()
         return
@@ -649,49 +727,87 @@ def render(
     selected_task = COLONY_ASSISTANT_TASKS[selected_task_index]
     missing = state.missing_task_requirements(selected_task)
     legality = "legal" if not missing else f"blocked by {', '.join(missing)}"
+    legality_pair = PAIR_GOOD if not missing else PAIR_DANGER
     assistant_status = "enabled" if state.assistant_enabled else "disabled"
+    assistant_pair = PAIR_GOOD if state.assistant_enabled else PAIR_WARNING
     eligible = state.eligible_technologies()
     next_tech = eligible[0] if eligible else "blocked by prerequisites"
+    next_tech_pair = PAIR_RESEARCH if eligible else PAIR_DANGER
     world = state.world_map
 
-    safe_addstr(
+    safe_add_segments(
         stdscr,
         2,
-        0,
-        f"Race: {state.race}   Eternal World: {format_big_number(state.world_number)}   Turn: {state.turn}   Assistant: {assistant_status}",
+        (
+            ("Race: ", ui_attr(PAIR_TITLE, bold=True)),
+            (state.race, ui_attr(PAIR_GOOD, bold=True)),
+            ("   Eternal World: ", ui_attr(PAIR_TITLE)),
+            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
+            ("   Turn: ", ui_attr(PAIR_TITLE)),
+            (str(state.turn), ui_attr(PAIR_WORLD)),
+            ("   Assistant: ", ui_attr(PAIR_TITLE)),
+            (assistant_status, ui_attr(assistant_pair, bold=True)),
+        ),
     )
-    safe_addstr(
+    safe_add_segments(
         stdscr,
         3,
-        0,
-        f"Permanent power: {format_big_number(state.permanent_power)}   Worlds completed: {format_big_number(state.worlds_completed)}   Enemy scale: {format_big_number(state.enemy_scale_rating())}",
+        (
+            ("Permanent power: ", ui_attr(PAIR_TITLE)),
+            (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
+            ("   Worlds completed: ", ui_attr(PAIR_TITLE)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
+            ("   Enemy scale: ", ui_attr(PAIR_TITLE)),
+            (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
+        ),
     )
     if world is not None:
-        safe_addstr(
+        safe_add_segments(
             stdscr,
             4,
-            0,
-            f"Scenario seed: {world.fingerprint}   Territories: {world.territory_count}   Rivals: {len(world.rival_races)}   Shrine sites: {len(world.shrine_sites)}",
+            (
+                ("Scenario seed: ", ui_attr(PAIR_TITLE)),
+                (world.fingerprint, ui_attr(PAIR_INFO)),
+                ("   Territories: ", ui_attr(PAIR_TITLE)),
+                (str(world.territory_count), ui_attr(PAIR_WORLD)),
+                ("   Rivals: ", ui_attr(PAIR_TITLE)),
+                (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
+                ("   Shrine sites: ", ui_attr(PAIR_TITLE)),
+                (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
+            ),
         )
-    safe_addstr(
+    safe_add_segments(
         stdscr,
         5,
-        0,
-        f"Selected task: {selected_task} [{legality}]   Next verified research: {next_tech}",
+        (
+            ("Selected task: ", ui_attr(PAIR_TITLE)),
+            (selected_task, ui_attr(legality_pair, bold=True)),
+            (f" [{legality}]", ui_attr(legality_pair)),
+            ("   Next verified research: ", ui_attr(PAIR_TITLE)),
+            (next_tech, ui_attr(next_tech_pair, bold=True)),
+        ),
     )
 
-    safe_addstr(stdscr, 7, 0, "Chronicle — newest five actions", curses.A_BOLD)
+    safe_addstr(
+        stdscr,
+        7,
+        0,
+        "Chronicle — newest five actions",
+        ui_attr(PAIR_WORLD, bold=True),
+    )
     row = 8
     for entry in reversed(state.chronicle):
         prefix = f"{entry.at} — "
         available = max(16, width - len(prefix) - 1)
         parts = list(wrapped_lines(entry.detail, available))
-        safe_addstr(stdscr, row, 0, prefix + parts[0])
+        detail_attr = ui_attr(chronicle_pair_for_detail(entry.detail))
+        safe_addstr(stdscr, row, 0, prefix, ui_attr(PAIR_TITLE, bold=True))
+        safe_addstr(stdscr, row, len(prefix), parts[0], detail_attr)
         row += 1
         for continuation in parts[1:]:
             if row >= height - 4:
                 break
-            safe_addstr(stdscr, row, len(prefix), continuation)
+            safe_addstr(stdscr, row, len(prefix), continuation, detail_attr)
             row += 1
         if row >= height - 4:
             break
@@ -700,18 +816,20 @@ def render(
         "[ / ] task   Enter focus   A assistant   B build   T trade   "
         "R research   X attack   E end turn   V world victory   Q quit"
     )
-    safe_addstr(stdscr, height - 2, 0, controls)
+    safe_addstr(stdscr, height - 2, 0, controls, ui_attr(PAIR_WARNING, bold=True))
     safe_addstr(
         stdscr,
         height - 1,
         0,
         "Eternal campaign: random worlds, permanent progress, uncapped scaling/suffixes, silent 1s save.",
+        ui_attr(PAIR_GOOD),
     )
     stdscr.refresh()
 
 
 def run_game(stdscr: "curses._CursesWindow") -> None:
     curses.curs_set(0)
+    init_colors()
     stdscr.nodelay(True)
     stdscr.timeout(100)
 
