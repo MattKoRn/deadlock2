@@ -6,6 +6,60 @@ import deadlock2
 
 
 class AutonomousChronicleRulesTests(unittest.TestCase):
+    def test_symbol_registry_contains_all_rendering_roles(self):
+        required = {
+            "live",
+            "world",
+            "research",
+            "offline",
+            "event",
+            "selected",
+            "unselected",
+            "rail_live",
+            "rail_history",
+            "separator",
+            "progress_full",
+            "progress_empty",
+            "rule",
+            "divider",
+        }
+        self.assertTrue(required.issubset(deadlock2.UI_SYMBOLS))
+        self.assertTrue(all(deadlock2.UI_SYMBOLS[key] for key in required))
+
+    def test_symbol_font_target_is_user_local_on_supported_platforms(self):
+        home = Path("/home/tester")
+        linux_target = deadlock2.symbol_font_target("Linux", home=home)
+        self.assertEqual(
+            linux_target,
+            home / ".local" / "share" / "fonts" / deadlock2.SYMBOL_FONT_FILENAME,
+        )
+        mac_target = deadlock2.symbol_font_target("Darwin", home=home)
+        self.assertEqual(
+            mac_target,
+            home / "Library" / "Fonts" / deadlock2.SYMBOL_FONT_FILENAME,
+        )
+        windows_target = deadlock2.symbol_font_target(
+            "Windows",
+            home=home,
+            local_appdata=r"C:\Users\tester\AppData\Local",
+        )
+        self.assertEqual(
+            windows_target.name,
+            deadlock2.SYMBOL_FONT_FILENAME,
+        )
+        self.assertIn("Fonts", windows_target.parts)
+
+    def test_symbol_archive_member_prefers_regular_font(self):
+        names = [
+            "README.txt",
+            "fonts/NotoSansSymbols2-Bold.ttf",
+            "fonts/NotoSansSymbols2-Regular.ttf",
+        ]
+        self.assertEqual(
+            deadlock2.choose_symbol_font_member(names),
+            "fonts/NotoSansSymbols2-Regular.ttf",
+        )
+
     def test_chronicle_keeps_only_five_actions(self):
         state = deadlock2.GameState()
         for index in range(8):
