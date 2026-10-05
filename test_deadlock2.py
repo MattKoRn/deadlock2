@@ -323,6 +323,17 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(fitted[1], ("12345", 2))
         self.assertEqual(fitted[2], (" ", 3))
 
+    def test_polished_progress_bar_is_bounded(self):
+        self.assertEqual(deadlock2.polished_progress_bar(0, 10, 6), "──────")
+        self.assertEqual(deadlock2.polished_progress_bar(5, 10, 6), "━━━───")
+        self.assertEqual(deadlock2.polished_progress_bar(10, 10, 6), "━━━━━━")
+        self.assertEqual(len(deadlock2.polished_progress_bar(99, 10, 6)), 6)
+
+    def test_chronicle_gap_only_follows_live_event(self):
+        self.assertEqual(deadlock2.chronicle_gap(0), 1)
+        self.assertEqual(deadlock2.chronicle_gap(1), 0)
+        self.assertEqual(deadlock2.chronicle_gap(4), 0)
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
