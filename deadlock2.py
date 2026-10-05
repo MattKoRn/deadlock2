@@ -345,14 +345,19 @@ def refresh_symbol_font_registration(targets: Iterable[Path]) -> str:
             import ctypes
             import winreg
 
+            family_by_filename = {
+                filename: family
+                for family, filename, _ in SYMBOL_FONT_ASSETS
+            }
             with winreg.CreateKey(
                 winreg.HKEY_CURRENT_USER,
                 r"Software\Microsoft\Windows NT\CurrentVersion\Fonts",
             ) as key:
                 for target in paths:
+                    family = family_by_filename.get(target.name, target.stem)
                     winreg.SetValueEx(
                         key,
-                        f"{target.stem} (TrueType)",
+                        f"{family} (TrueType)",
                         0,
                         winreg.REG_SZ,
                         str(target),
