@@ -64,6 +64,77 @@ RACE_FLAG_COLORS = {
     "Uva Mosk": "Green",
 }
 
+# Canon racial facts from the Deadlock II manual. The preferred_action values
+# below are project automation doctrine derived from those facts, not original
+# numeric AI weights from the 1998 game.
+RACE_DOCTRINES: dict[str, dict[str, str]] = {
+    "ChCh-t": {
+        "preferred_action": "Build",
+        "strength": (
+            "colonists multiply quickly, housing holds twice as many colonists, "
+            "and unit production is faster"
+        ),
+        "weakness": "research is slower and military units are weaker",
+        "combat": "fast-moving units and more effective air units support mobile pressure",
+    },
+    "Cyth": {
+        "preferred_action": "Attack",
+        "strength": (
+            "morale rarely changes, food needs are lower, Scouts can poison land, "
+            "and Command Corps can use Mind Blast"
+        ),
+        "weakness": "pacts are difficult and fixed morale prevents use of the full workforce",
+        "combat": "Mind Blast support and poison-capable Scouts favor disruptive attacks",
+    },
+    "Human": {
+        "preferred_action": "Trade",
+        "strength": (
+            "trade income is doubled, tax income is higher, and transport costs are reduced"
+        ),
+        "weakness": (
+            "military forces cost more to maintain and Skirineen dealings carry higher scandal risk"
+        ),
+        "combat": (
+            "infantry can use the Berserk battle order, doubling attack strength but dying after battle"
+        ),
+    },
+    "Maug": {
+        "preferred_action": "Research",
+        "strength": (
+            "Electronics production and research are faster, military units are produced faster, "
+            "and Scouts can sabotage units and steal technologies"
+        ),
+        "weakness": "colonists rebel more readily and infantry units are weaker",
+        "combat": "rapid military production and sabotage-capable Scouts support technical warfare",
+    },
+    "Re'Lu": {
+        "preferred_action": "Attack",
+        "strength": (
+            "they can see more colony detail, Command Corps can Mind Control, "
+            "and Scouts can subvert enemy morale"
+        ),
+        "weakness": "their units are weak",
+        "combat": "Mind Control and morale subversion favor opportunistic attacks over raw force",
+    },
+    "Tarth": {
+        "preferred_action": "Attack",
+        "strength": (
+            "food production is faster and their military force is the strongest of any race"
+        ),
+        "weakness": "naval units are weak and Scouts are poor spies",
+        "combat": "infantry can use the Juggernaut mission to devastate enemy buildings",
+    },
+    "Uva Mosk": {
+        "preferred_action": "Build",
+        "strength": (
+            "natural-resource production is higher, military upkeep is lower, "
+            "and all units have improved combat accuracy"
+        ),
+        "weakness": "tax income is low",
+        "combat": "improved combat accuracy supports disciplined attacks backed by strong resources",
+    },
+}
+
 COLONY_ASSISTANT_TASKS = (
     "Construction",
     "Upgrade",
@@ -502,6 +573,26 @@ class ChronicleEntry:
 
 
 @dataclass
+class AttackIntent:
+    target_race: str
+    issued_world: int
+    issued_turn: int
+    doctrine: str
+
+    @classmethod
+    def from_json_dict(cls, raw: dict) -> "AttackIntent":
+        target_race = str(raw.get("target_race", ""))
+        if target_race not in RACES:
+            raise ValueError("Attack intent target must be a canon race.")
+        return cls(
+            target_race=target_race,
+            issued_world=max(1, int(raw.get("issued_world", 1))),
+            issued_turn=max(1, int(raw.get("issued_turn", 1))),
+            doctrine=str(raw.get("doctrine", "")).strip(),
+        )
+
+
+@dataclass
 class GeneratedMap:
     seed: int
     territory_count: int
@@ -583,6 +674,7 @@ class GameState:
     world_actions: int = 0
     researched_technologies: list[str] = field(default_factory=list)
     world_map: Optional[GeneratedMap] = None
+    pending_attack: Optional[AttackIntent] = None
     last_assistant_epoch: float = field(default_factory=time.time)
     last_active_epoch: float = field(default_factory=time.time)
     chronicle: Deque[ChronicleEntry] = field(
@@ -664,6 +756,7 @@ class GameState:
         self.world_number += 1
         self.turn = 1
         self.world_actions = 0
+        self.pending_attack = None
 
         next_seed = seed
         if next_seed is None:
@@ -727,17 +820,29 @@ class GameState:
             f"Canon effect: {rule.effect} The unlock remains permanent across later worlds."
         )
 
-    def choose_strategic_action(self) -> tuple[str, str]:
-        """Choose one canon strategic verb from current world pressure.
+    def race_doctrine(self) -> dict[str, str]:
+        """Return canon racial context plus the project's derived preferred action."""
+        return RACE_DOCTRINES.get(
+            self.race,
+            {
+                "preferred_action": "Build",
+                "strength": "no verified racial doctrine is available",
+                "weakness": "no verified racial weakness is available",
+                "combat": "no verified racial combat doctrine is available",
+            },
+        )
 
-        Added contextual automation rule: Build stabilizes the opening third, Trade
-        carries the middle, Attack closes the final third, while every fourth
-        decision may become Research when a verified technology is currently legal.
-        This pacing rule is project automation; the action names remain canon.
+    def choose_strategic_action(self) -> tuple[str, str]:
+        """Choose one canon strategic verb from world pressure and racial doctrine.
+
+        Project rule: every fourth eligible decision protects research progress.
+        Every third otherwise uses the selected race's derived doctrine action.
+        All remaining decisions use the opening/middle/final world-phase rule.
         """
         goal = self.world_action_goal()
         decision_number = self.assistant_decisions + 1
         eligible = self.eligible_technologies()
+        doctrine = self.race_doctrine()
 
         if eligible and decision_number % 4 == 0:
             return (
@@ -745,6 +850,17 @@ class GameState:
                 f"Research was selected because {eligible[0]} is currently legal and "
                 "the fourth-decision research cadence prevents canon technology from "
                 "being starved by endless military or economic actions.",
+            )
+
+        preferred = doctrine["preferred_action"]
+        if decision_number % 3 == 0 and (
+            preferred != "Research" or bool(eligible)
+        ):
+            return (
+                preferred,
+                f"{self.race} doctrine selected {preferred} because canon strengths include "
+                f"{doctrine['strength']}; the project doctrine pulse uses that verified identity "
+                f"while respecting the canon weakness that {doctrine['weakness']}.",
             )
 
         if self.world_actions * 3 >= goal * 2:
@@ -787,9 +903,73 @@ class GameState:
                 return task
         return legal[self.assistant_decisions % len(legal)]
 
-    def make_assistant_decision(self, decision_epoch: float) -> None:
-        """Execute the game's one fully autonomous strategic decision for this minute."""
+    def choose_attack_target(self, decision_number: int) -> str:
+        """Choose a current rival deterministically without inventing diplomacy data."""
         self.ensure_world()
+        if self.world_map is None or not self.world_map.rival_races:
+            return "Unknown Rival"
+        index = max(0, int(decision_number) - 1) % len(self.world_map.rival_races)
+        return self.world_map.rival_races[index]
+
+    def issue_attack_intent(self, decision_number: int, turn_resolved: int) -> str:
+        """Pre-issue an attack order; combat resolution consumes the next minute."""
+        doctrine = self.race_doctrine()
+        target = self.choose_attack_target(decision_number)
+        self.pending_attack = AttackIntent(
+            target_race=target,
+            issued_world=self.world_number,
+            issued_turn=turn_resolved,
+            doctrine=doctrine["combat"],
+        )
+        return (
+            f"Attack order was pre-issued against {target} and will resolve on the next "
+            f"autonomous minute before any new order is considered. Canon racial doctrine: "
+            f"{doctrine['combat']}. No casualty, damage, or unit-count result is invented "
+            "before resolution."
+        )
+
+    def resolve_pending_attack(self, decision_epoch: float) -> bool:
+        """Resolve the previously issued Attack as this minute's sole decision."""
+        intent = self.pending_attack
+        if intent is None:
+            return False
+
+        decision_number = self.assistant_decisions + 1
+        turn_resolved = self.turn
+        previous_focus = self.assistant_focus
+        task = self.choose_assistant_task("Attack")
+        self.pending_attack = None
+        self.assistant_focus = task
+        self.assistant_decisions = decision_number
+        self.strategic_actions += 1
+        self.world_actions += 1
+        self.turn += 1
+        self.last_assistant_epoch = decision_epoch
+
+        progress = f"{self.world_actions}/{self.world_action_goal()}"
+        self.add_chronicle(
+            f"Autonomous decision #{format_big_number(decision_number)} on Eternal World "
+            f"{self.world_number}, Turn {turn_resolved} resolved the pre-issued Attack "
+            f"against {intent.target_race} from Turn {intent.issued_turn}. Canon doctrine: "
+            f"{intent.doctrine}. Project combat resolution converted that prepared order "
+            "into scenario military pressure without inventing casualties, hit points, "
+            f"damage rolls, or unit counts. Colony Assistant focus changed from "
+            f"{previous_focus} to {task}; scenario operations are {progress} and enemy "
+            f"scale is {format_big_number(self.enemy_scale_rating())}.",
+            epoch=decision_epoch,
+        )
+
+        if self.world_actions >= self.world_action_goal():
+            self.complete_world(epoch=decision_epoch)
+        return True
+
+    def make_assistant_decision(self, decision_epoch: float) -> None:
+        """Execute exactly one autonomous strategic decision for this minute."""
+        self.ensure_world()
+
+        if self.resolve_pending_attack(decision_epoch):
+            return
+
         legal_tasks = self.legal_assistant_tasks()
         decision_number = self.assistant_decisions + 1
 
@@ -818,10 +998,7 @@ class GameState:
                 "an unverified exchange rate."
             )
         else:
-            action_result = (
-                "Attack execution advanced military pressure without inventing "
-                "unverified unit statistics or combat results."
-            )
+            action_result = self.issue_attack_intent(decision_number, turn_resolved)
 
         gated_count = len(COLONY_ASSISTANT_TASKS) - len(legal_tasks)
         progress = f"{self.world_actions}/{self.world_action_goal()}"
@@ -835,7 +1012,7 @@ class GameState:
             epoch=decision_epoch,
         )
 
-        if self.world_actions >= self.world_action_goal():
+        if self.world_actions >= self.world_action_goal() and self.pending_attack is None:
             self.complete_world(epoch=decision_epoch)
 
     def apply_due_assistant_decisions(self, now: Optional[float] = None) -> int:
@@ -872,6 +1049,13 @@ class GameState:
             else None
         )
         legacy_actions = int(raw.get("manual_orders", 0))
+        pending_raw = raw.get("pending_attack")
+        pending_attack = None
+        if isinstance(pending_raw, dict):
+            try:
+                pending_attack = AttackIntent.from_json_dict(pending_raw)
+            except (ValueError, TypeError, KeyError):
+                pending_attack = None
         state = cls(
             race=raw.get("race", ""),
             turn=max(1, int(raw.get("turn", 1))),
@@ -887,12 +1071,23 @@ class GameState:
             world_actions=max(0, int(raw.get("world_actions", 0))),
             researched_technologies=verified_tech,
             world_map=world_map,
+            pending_attack=pending_attack,
             last_assistant_epoch=float(raw.get("last_assistant_epoch", time.time())),
             last_active_epoch=float(raw.get("last_active_epoch", time.time())),
         )
         if state.race and state.race not in RACES:
             state.race = ""
             state.world_map = None
+            state.pending_attack = None
+        if (
+            state.pending_attack is not None
+            and (
+                state.pending_attack.issued_world != state.world_number
+                or state.world_map is None
+                or state.pending_attack.target_race not in state.world_map.rival_races
+            )
+        ):
+            state.pending_attack = None
         if not state.can_use_task(state.assistant_focus):
             state.assistant_focus = "Construction"
         for entry in raw.get("chronicle", [])[-CHRONICLE_LIMIT:]:
