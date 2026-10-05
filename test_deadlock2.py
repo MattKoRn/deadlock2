@@ -293,6 +293,21 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         text, _ = deadlock2.status_separator()
         self.assertEqual(text, "   ·   ")
 
+    def test_chronicle_detail_split_promotes_lead_clause(self):
+        lead, remainder = deadlock2.split_chronicle_detail(
+            "Completed Eternal World 4; banked permanent power and generated World 5."
+        )
+        self.assertEqual(lead, "Completed Eternal World 4;")
+        self.assertEqual(remainder, "banked permanent power and generated World 5.")
+
+    def test_compact_chronicle_detail_stays_one_line(self):
+        compact = deadlock2.compact_chronicle_detail(
+            "Autonomous decision chose Research and changed focus to Electronics.",
+            24,
+        )
+        self.assertLessEqual(len(compact), 24)
+        self.assertNotIn("\n", compact)
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
