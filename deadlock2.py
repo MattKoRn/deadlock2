@@ -131,12 +131,24 @@ def init_colors() -> None:
         COLORS_ACTIVE = False
 
 
-def ui_attr(pair: int, *, bold: bool = False, reverse: bool = False) -> int:
+def ui_attr(
+    pair: int,
+    *,
+    bold: bool = False,
+    reverse: bool = False,
+    dim: bool = False,
+    underline: bool = False,
+) -> int:
+    """Compose terminal styling without making color support mandatory."""
     attr = curses.color_pair(pair) if COLORS_ACTIVE else 0
     if bold:
         attr |= curses.A_BOLD
     if reverse:
         attr |= curses.A_REVERSE
+    if dim:
+        attr |= curses.A_DIM
+    if underline:
+        attr |= curses.A_UNDERLINE
     return attr
 
 
@@ -199,6 +211,30 @@ def seconds_until_next_decision(
     if elapsed >= ASSISTANT_INTERVAL_SECONDS:
         return 0
     return max(0, int(math.ceil(ASSISTANT_INTERVAL_SECONDS - elapsed)))
+
+
+def format_countdown(seconds: int) -> str:
+    """Format the AI countdown as a tidy MM:SS terminal readout."""
+    safe_seconds = max(0, int(seconds))
+    minutes, remainder = divmod(safe_seconds, 60)
+    return f"{minutes:02d}:{remainder:02d}"
+
+
+def progress_percent(current: int, total: int) -> int:
+    """Return a clamped whole-number percentage for the current world."""
+    safe_total = max(1, int(total))
+    safe_current = max(0, min(int(current), safe_total))
+    return min(100, (safe_current * 100) // safe_total)
+
+
+def fit_text(text: str, width: int) -> str:
+    """Trim a label cleanly instead of letting terminal clipping look accidental."""
+    safe_width = max(0, int(width))
+    if len(text) <= safe_width:
+        return text
+    if safe_width <= 1:
+        return text[:safe_width]
+    return text[: safe_width - 1] + "…"
 
 
 @dataclass(frozen=True)
@@ -790,16 +826,22 @@ def render_race_selection(
     stdscr: "curses._CursesWindow",
     selected_index: int,
 ) -> None:
-    """Render the single manual choice as a clean, game-like opening screen."""
+    """Render the one manual choice with a clean, focused hierarchy."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     selected_race = RACES[selected_index]
 
-    title = "DEADLOCK II · SHRINE WARS"
-    subtitle = "ETERNAL CHRONICLE"
+    title = "DEADLOCK II"
+    subtitle = "SHRINE WARS  ·  ETERNAL CHRONICLE"
     safe_addstr(stdscr, 0, center_x(width, title), title, ui_attr(PAIR_TITLE, bold=True))
-    safe_addstr(stdscr, 1, center_x(width, subtitle), subtitle, ui_attr(PAIR_WORLD, bold=True))
-    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
+    safe_addstr(
+        stdscr,
+        1,
+        center_x(width, subtitle),
+        subtitle,
+        ui_attr(PAIR_WORLD, bold=True),
+    )
+    draw_divider(stdscr, 2, width, pair=PAIR_MUTED)
 
     heading = "SELECT YOUR PERMANENT RACE"
     safe_addstr(
@@ -807,16 +849,22 @@ def render_race_selection(
         4,
         center_x(width, heading),
         heading,
-        ui_attr(PAIR_GOOD, bold=True),
+        ui_attr(PAIR_GOOD, bold=True, underline=True),
     )
-    copy = "One choice now. Full autonomy begins immediately after confirmation."
-    safe_addstr(stdscr, 5, center_x(width, copy), copy, ui_attr(PAIR_MUTED))
+    copy = "Choose once. The eternal campaign becomes fully autonomous after confirmation."
+    safe_addstr(
+        stdscr,
+        5,
+        center_x(width, fit_text(copy, max(1, width - 2))),
+        fit_text(copy, max(1, width - 2)),
+        ui_attr(PAIR_MUTED, dim=True),
+    )
 
     start_y = 7
     widest = max(len(race) for race in RACES)
     for index, race in enumerate(RACES):
         selected = index == selected_index
-        marker = "◆" if selected else "◇"
+        marker = "◆" if selected else "·"
         label = f"{marker}  {index + 1}  {race:<{widest}}"
         pair = race_ui_pair(race)
         attr = ui_attr(pair, bold=selected, reverse=selected)
@@ -825,171 +873,263 @@ def render_race_selection(
     info_y = start_y + len(RACES) + 1
     if info_y < height - 4:
         draw_divider(stdscr, info_y, width, pair=PAIR_MUTED)
-        flag_line = (
-            f"{selected_race}  ·  Canon Planet View flag: "
-            f"{RACE_FLAG_COLORS[selected_race]}  ·  Selection {selected_index + 1}/{len(RACES)}"
+        flag_chip = f"● {selected_race}"
+        flag_detail = (
+            f"Canon flag {RACE_FLAG_COLORS[selected_race]}  ·  "
+            f"{selected_index + 1} of {len(RACES)}"
+        )
+        combined = f"{flag_chip}    {flag_detail}"
+        safe_addstr(
+            stdscr,
+            info_y + 1,
+            center_x(width, combined),
+            flag_chip,
+            ui_attr(race_ui_pair(selected_race), bold=True),
         )
         safe_addstr(
             stdscr,
             info_y + 1,
-            center_x(width, flag_line),
-            flag_line,
-            ui_attr(race_ui_pair(selected_race), bold=True),
+            center_x(width, combined) + len(flag_chip),
+            f"    {flag_detail}",
+            ui_attr(PAIR_MUTED),
         )
 
-    hint = "↑ ↓ / W S move    Enter confirm    1–7 quick select    Q quit"
+    hint = "↑ ↓ / W S  move     Enter  confirm     1–7  quick select     Q  quit"
     safe_addstr(
         stdscr,
         height - 2,
-        center_x(width, hint),
-        hint,
+        center_x(width, fit_text(hint, max(1, width - 1))),
+        fit_text(hint, max(1, width - 1)),
         ui_attr(PAIR_WARNING, bold=True),
     )
-    final_hint = "Race selection is the only manual gameplay choice."
+    final_hint = "RACE SELECTION  ·  the only manual gameplay choice"
     safe_addstr(
         stdscr,
         height - 1,
-        center_x(width, final_hint),
-        final_hint,
-        ui_attr(PAIR_MUTED),
+        center_x(width, fit_text(final_hint, max(1, width - 1))),
+        fit_text(final_hint, max(1, width - 1)),
+        ui_attr(PAIR_MUTED, dim=True),
     )
     stdscr.refresh()
 
 
 def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
-    """Render one clean text surface with Chronicle as the visual center."""
+    """Render a polished single-surface terminal view centered on the Chronicle."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     state.ensure_world()
     world = state.world_map
 
-    title = "DEADLOCK II · SHRINE WARS"
-    subtitle = f"ETERNAL CHRONICLE  ·  {state.race}"
+    title = "DEADLOCK II"
+    subtitle = f"SHRINE WARS  ·  ETERNAL CHRONICLE  ·  {state.race.upper()}"
     safe_addstr(stdscr, 0, center_x(width, title), title, ui_attr(PAIR_TITLE, bold=True))
     safe_addstr(
         stdscr,
         1,
-        center_x(width, subtitle),
-        subtitle,
+        center_x(width, fit_text(subtitle, max(1, width - 1))),
+        fit_text(subtitle, max(1, width - 1)),
         ui_attr(race_ui_pair(state.race), bold=True),
     )
-    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
+    draw_divider(stdscr, 2, width, pair=PAIR_MUTED)
 
-    if width >= 88:
-        empire_segments = (
-            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
-            ("World ", ui_attr(PAIR_MUTED)),
+    next_seconds = seconds_until_next_decision(state.last_assistant_epoch)
+    countdown = format_countdown(next_seconds)
+    race_badge = f"● {state.race}"
+
+    if width >= 92:
+        identity = (
+            (race_badge, ui_attr(race_ui_pair(state.race), bold=True)),
+            ("   WORLD ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("  Victory ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
-            ("  Power ", ui_attr(PAIR_MUTED)),
+            ("   TURN ", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
+            ("   NEXT AI ", ui_attr(PAIR_MUTED, dim=True)),
+            (countdown, ui_attr(PAIR_WARNING, bold=True)),
+        )
+    else:
+        identity = (
+            (race_badge, ui_attr(race_ui_pair(state.race), bold=True)),
+            ("   W", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
+            ("   T", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
+            ("   AI ", ui_attr(PAIR_MUTED, dim=True)),
+            (countdown, ui_attr(PAIR_WARNING, bold=True)),
+        )
+    safe_add_segments(stdscr, 3, identity)
+
+    if width >= 92:
+        empire = (
+            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
+            ("POWER ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
-            ("  Enemy ", ui_attr(PAIR_MUTED)),
+            ("   VICTORIES ", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
+            ("   ENEMY ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
         )
     else:
-        empire_segments = (
+        empire = (
             ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
-            ("W", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("  V", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
-            ("  Power ", ui_attr(PAIR_MUTED)),
+            ("PWR ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
+            ("   WIN ", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
+            ("   EN ", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
         )
-    safe_add_segments(stdscr, 3, empire_segments)
+    safe_add_segments(stdscr, 4, empire)
 
     if world is not None:
-        world_segments = (
-            ("WORLD   ", ui_attr(PAIR_TITLE, bold=True)),
-            ("Seed ", ui_attr(PAIR_MUTED)),
-            (world.fingerprint, ui_attr(PAIR_INFO)),
-            ("  Territories ", ui_attr(PAIR_MUTED)),
-            (str(world.territory_count), ui_attr(PAIR_WORLD)),
-            ("  Rivals ", ui_attr(PAIR_MUTED)),
-            (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
-            ("  Shrines ", ui_attr(PAIR_MUTED)),
-            (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
-        )
-        safe_add_segments(stdscr, 4, world_segments)
+        if width >= 92:
+            world_segments = (
+                ("WORLD   ", ui_attr(PAIR_TITLE, bold=True)),
+                ("SEED ", ui_attr(PAIR_MUTED, dim=True)),
+                (world.fingerprint, ui_attr(PAIR_INFO)),
+                ("   TERRITORIES ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(world.territory_count), ui_attr(PAIR_WORLD)),
+                ("   RIVALS ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
+                ("   SHRINES ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
+            )
+        else:
+            world_segments = (
+                ("WORLD   ", ui_attr(PAIR_TITLE, bold=True)),
+                (world.fingerprint, ui_attr(PAIR_INFO)),
+                ("   TERR ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(world.territory_count), ui_attr(PAIR_WORLD)),
+                ("   RIV ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
+                ("   SHR ", ui_attr(PAIR_MUTED, dim=True)),
+                (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
+            )
+        safe_add_segments(stdscr, 5, world_segments)
 
     goal = state.world_action_goal()
-    meter_width = 18 if width >= 88 else 10
+    meter_width = 20 if width >= 92 else 12
     meter = progress_meter(state.world_actions, goal, meter_width)
-    next_seconds = seconds_until_next_decision(state.last_assistant_epoch)
+    percent = progress_percent(state.world_actions, goal)
     eligible = state.eligible_technologies()
     next_tech = eligible[0] if eligible else "awaiting prerequisites"
 
-    if width >= 88:
-        autonomy_segments = (
+    if width >= 92:
+        ai_segments = (
             ("AI      ", ui_attr(PAIR_TITLE, bold=True)),
-            (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
-            ("  ", ui_attr(PAIR_MUTED)),
             (meter, ui_attr(PAIR_GOOD)),
-            (f" {state.world_actions}/{goal}", ui_attr(PAIR_WORLD, bold=True)),
-            ("  Next ", ui_attr(PAIR_MUTED)),
-            (f"{next_seconds}s", ui_attr(PAIR_WARNING, bold=True)),
-            ("  Research ", ui_attr(PAIR_MUTED)),
+            (f" {percent:>3}% ", ui_attr(PAIR_WORLD, bold=True)),
+            ("  FOCUS ", ui_attr(PAIR_MUTED, dim=True)),
+            (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
+            ("   RESEARCH ", ui_attr(PAIR_MUTED, dim=True)),
             (next_tech, ui_attr(PAIR_RESEARCH)),
         )
     else:
-        autonomy_segments = (
+        ai_segments = (
             ("AI      ", ui_attr(PAIR_TITLE, bold=True)),
             (meter, ui_attr(PAIR_GOOD)),
-            (f" {state.world_actions}/{goal}", ui_attr(PAIR_WORLD, bold=True)),
-            ("  Next ", ui_attr(PAIR_MUTED)),
-            (f"{next_seconds}s", ui_attr(PAIR_WARNING, bold=True)),
-            ("  Focus ", ui_attr(PAIR_MUTED)),
+            (f" {percent:>3}% ", ui_attr(PAIR_WORLD, bold=True)),
+            ("  ", ui_attr(PAIR_MUTED)),
             (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
         )
-    safe_add_segments(stdscr, 5, autonomy_segments)
+    safe_add_segments(stdscr, 6, ai_segments)
 
-    draw_divider(stdscr, 6, width, pair=PAIR_MUTED)
-    chronicle_title = "CHRONICLE  ·  LATEST FIVE ACTIONS"
-    safe_addstr(stdscr, 7, 0, chronicle_title, ui_attr(PAIR_WORLD, bold=True))
+    draw_divider(stdscr, 7, width, pair=PAIR_MUTED)
+    chronicle_title = "CHRONICLE  /  LATEST FIVE"
+    safe_addstr(
+        stdscr,
+        8,
+        0,
+        chronicle_title,
+        ui_attr(PAIR_WORLD, bold=True, underline=True),
+    )
 
-    row = 9
+    row = 10
     max_chronicle_row = max(row, height - 4)
     for entry in reversed(state.chronicle):
         if row >= max_chronicle_row:
             break
+
         label = chronicle_label_for_detail(entry.detail)
         label_text = f"{label:<8}"
-        prefix = f"{entry.at:<8} "
-        available = max(16, width - len(label_text) - len(prefix) - 2)
+        time_text = f"{entry.at:<8}"
+        left_width = 19
+        available = max(16, width - left_width - 1)
         parts = list(wrapped_lines(entry.detail, available))
         detail_pair = chronicle_pair_for_detail(entry.detail)
 
-        safe_addstr(stdscr, row, 0, label_text, ui_attr(detail_pair, bold=True))
-        safe_addstr(stdscr, row, 9, prefix, ui_attr(PAIR_TITLE, bold=True))
-        safe_addstr(stdscr, row, 18, parts[0], ui_attr(detail_pair))
+        safe_addstr(
+            stdscr,
+            row,
+            0,
+            "◆",
+            ui_attr(detail_pair, bold=True),
+        )
+        safe_addstr(
+            stdscr,
+            row,
+            2,
+            label_text,
+            ui_attr(detail_pair, bold=True),
+        )
+        safe_addstr(
+            stdscr,
+            row,
+            11,
+            time_text,
+            ui_attr(PAIR_TITLE, bold=True),
+        )
+        safe_addstr(
+            stdscr,
+            row,
+            left_width,
+            parts[0],
+            ui_attr(detail_pair),
+        )
         row += 1
 
         for continuation in parts[1:]:
             if row >= max_chronicle_row:
                 break
-            safe_addstr(stdscr, row, 18, continuation, ui_attr(detail_pair))
+            safe_addstr(
+                stdscr,
+                row,
+                left_width,
+                continuation,
+                ui_attr(detail_pair, dim=True),
+            )
             row += 1
 
         if row < max_chronicle_row:
             row += 1
 
     draw_divider(stdscr, height - 3, width, pair=PAIR_MUTED)
-    status = "● AUTONOMY ACTIVE   ·   one decision/minute   ·   progression never resets"
+
+    status = "● AUTONOMY ACTIVE"
+    status_detail = "1 decision/min  ·  endless worlds  ·  permanent progression"
+    combined_status = f"{status}   {status_detail}"
+    start = center_x(width, fit_text(combined_status, max(1, width - 1)))
     safe_addstr(
         stdscr,
         height - 2,
-        center_x(width, status),
+        start,
         status,
         ui_attr(PAIR_GOOD, bold=True),
     )
-    footer = "Q quit   •   silent autosave every second   •   race locked to this save"
+    safe_addstr(
+        stdscr,
+        height - 2,
+        start + len(status),
+        fit_text(f"   {status_detail}", max(0, width - start - len(status) - 1)),
+        ui_attr(PAIR_MUTED),
+    )
+
+    footer = "Q quit    AUTOSAVE ●    OFFLINE ●    CHRONICLE 5/5"
     safe_addstr(
         stdscr,
         height - 1,
-        center_x(width, footer),
-        footer,
-        ui_attr(PAIR_MUTED),
+        center_x(width, fit_text(footer, max(1, width - 1))),
+        fit_text(footer, max(1, width - 1)),
+        ui_attr(PAIR_MUTED, dim=True),
     )
     stdscr.refresh()
 
