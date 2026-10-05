@@ -22,6 +22,7 @@ import subprocess
 import sys
 import textwrap
 import time
+import urllib.error
 import urllib.request
 import zipfile
 from collections import deque
