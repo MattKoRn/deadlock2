@@ -315,6 +315,14 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
             len("POWER 12K · NEXT 00:42"),
         )
 
+    def test_fit_segments_clips_without_losing_attributes(self):
+        segments = (("POWER ", 1), ("12345", 2), (" · NEXT ", 3), ("00:42", 4))
+        fitted = deadlock2.fit_segments(segments, 12)
+        self.assertEqual(deadlock2.segments_width(fitted), 12)
+        self.assertEqual(fitted[0], ("POWER ", 1))
+        self.assertEqual(fitted[1], ("12345", 2))
+        self.assertEqual(fitted[2], (" ", 3))
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
