@@ -278,6 +278,21 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
             "POW 12K",
         )
 
+    def test_chronicle_recency_attributes_are_valid_in_monochrome(self):
+        previous = deadlock2.COLORS_ACTIVE
+        deadlock2.COLORS_ACTIVE = False
+        try:
+            newest = deadlock2.chronicle_recency_attr(deadlock2.PAIR_INFO, 0)
+            older = deadlock2.chronicle_recency_attr(deadlock2.PAIR_INFO, 3)
+        finally:
+            deadlock2.COLORS_ACTIVE = previous
+        self.assertTrue(newest & deadlock2.curses.A_BOLD)
+        self.assertTrue(older & deadlock2.curses.A_DIM)
+
+    def test_status_separator_is_quiet_unicode_spacing(self):
+        text, _ = deadlock2.status_separator()
+        self.assertEqual(text, "   ·   ")
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
