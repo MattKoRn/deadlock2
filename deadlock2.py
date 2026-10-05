@@ -40,6 +40,7 @@ PAIR_WARNING = 4
 PAIR_DANGER = 5
 PAIR_RESEARCH = 6
 PAIR_INFO = 7
+PAIR_MUTED = 8
 COLORS_ACTIVE = False
 
 RACES = (
@@ -110,6 +111,7 @@ def init_colors() -> None:
             (PAIR_DANGER, curses.COLOR_RED),
             (PAIR_RESEARCH, curses.COLOR_MAGENTA),
             (PAIR_INFO, curses.COLOR_BLUE),
+            (PAIR_MUTED, curses.COLOR_WHITE),
         )
         for pair, foreground in palette:
             curses.init_pair(pair, foreground, background)
@@ -342,29 +344,32 @@ class GameState:
             ChronicleEntry(at=timestamp_12h(epoch), detail=detail)
         )
 
-    def bootstrap_autonomous_campaign(
+    def select_race(
         self,
-        race: Optional[str] = None,
+        race: str,
         seed: Optional[int] = None,
         epoch: Optional[float] = None,
     ) -> None:
-        """Start a new save without asking the player for any gameplay choice."""
+        """Make race selection the one manual setup choice in the game."""
+        if race not in RACES:
+            raise ValueError(f"Unknown canon race: {race}")
         if self.race:
-            self.ensure_world()
-            return
+            if self.race == race:
+                return
+            raise RuntimeError("Race selection is permanent for this save.")
 
-        selected_race = race if race in RACES else secrets.choice(RACES)
         current = epoch if epoch is not None else time.time()
-        self.race = selected_race
+        self.race = race
         self.world_map = build_random_map(self.race, seed)
         self.last_assistant_epoch = current
         self.last_active_epoch = current
         self.add_chronicle(
-            f"Autonomous campaign initialization selected the canon {self.race} race "
-            f"and generated Eternal World {self.world_number} with scenario seed "
+            f"Selected the canon {self.race} race for this permanent campaign and "
+            f"generated Eternal World {self.world_number} with scenario seed "
             f"{self.world_map.fingerprint}, {self.world_map.territory_count} territories, "
             f"{len(self.world_map.shrine_sites)} shrine site(s), and "
-            f"{len(self.world_map.rival_races)} rival race(s); no player gameplay input is required.",
+            f"{len(self.world_map.rival_races)} rival race(s); all strategic play "
+            "from this point forward is fully autonomous.",
             epoch=current,
         )
 
@@ -705,58 +710,138 @@ def show_offline_popup(
     curses.napms(1500)
 
 
+def center_x(width: int, text: str) -> int:
+    return max(0, (width - len(text)) // 2)
+
+
+def draw_divider(
+    stdscr: "curses._CursesWindow",
+    y: int,
+    width: int,
+    *,
+    pair: int = PAIR_MUTED,
+) -> None:
+    """Draw a restrained Unicode divider; this is layout, not ASCII art."""
+    if width <= 2:
+        return
+    safe_addstr(stdscr, y, 0, "─" * (width - 1), ui_attr(pair))
+
+
+def render_race_selection(
+    stdscr: "curses._CursesWindow",
+    selected_index: int,
+) -> None:
+    stdscr.erase()
+    height, width = stdscr.getmaxyx()
+
+    title = "DEADLOCK II · SHRINE WARS"
+    subtitle = "ETERNAL CHRONICLE"
+    safe_addstr(stdscr, 0, center_x(width, title), title, ui_attr(PAIR_TITLE, bold=True))
+    safe_addstr(stdscr, 1, center_x(width, subtitle), subtitle, ui_attr(PAIR_WORLD, bold=True))
+    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
+
+    heading = "CHOOSE YOUR RACE"
+    safe_addstr(
+        stdscr,
+        4,
+        center_x(width, heading),
+        heading,
+        ui_attr(PAIR_GOOD, bold=True),
+    )
+    explanation = "Your race is permanent for this save. Everything after selection is autonomous."
+    safe_addstr(
+        stdscr,
+        5,
+        center_x(width, explanation),
+        explanation,
+        ui_attr(PAIR_MUTED),
+    )
+
+    start_y = 7
+    widest = max(len(race) for race in RACES)
+    for index, race in enumerate(RACES):
+        marker = "›" if index == selected_index else " "
+        label = f"{marker} {index + 1}  {race:<{widest}}"
+        attr = (
+            ui_attr(PAIR_GOOD, bold=True, reverse=True)
+            if index == selected_index
+            else ui_attr(PAIR_INFO)
+        )
+        safe_addstr(stdscr, start_y + index, center_x(width, label), label, attr)
+
+    footer_y = min(height - 3, start_y + len(RACES) + 2)
+    draw_divider(stdscr, footer_y, width, pair=PAIR_MUTED)
+    hint = "↑ ↓ move   Enter confirm   1–7 quick select   Q quit"
+    safe_addstr(
+        stdscr,
+        min(height - 2, footer_y + 1),
+        center_x(width, hint),
+        hint,
+        ui_attr(PAIR_WARNING, bold=True),
+    )
+    final_hint = "Race selection is the only manual gameplay choice."
+    safe_addstr(
+        stdscr,
+        height - 1,
+        center_x(width, final_hint),
+        final_hint,
+        ui_attr(PAIR_MUTED),
+    )
+    stdscr.refresh()
+
+
 def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     state.ensure_world()
     world = state.world_map
 
-    safe_addstr(
-        stdscr,
-        0,
-        0,
-        APP_TITLE,
-        ui_attr(PAIR_TITLE, bold=True),
-    )
+    title = "DEADLOCK II · SHRINE WARS"
+    subtitle = "ETERNAL CHRONICLE"
+    safe_addstr(stdscr, 0, center_x(width, title), title, ui_attr(PAIR_TITLE, bold=True))
+    safe_addstr(stdscr, 1, center_x(width, subtitle), subtitle, ui_attr(PAIR_WORLD, bold=True))
+    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
 
-    safe_add_segments(
-        stdscr,
-        2,
-        (
-            ("Race: ", ui_attr(PAIR_TITLE, bold=True)),
-            (state.race or "initializing", ui_attr(PAIR_GOOD, bold=True)),
-            ("   Eternal World: ", ui_attr(PAIR_TITLE)),
-            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("   Turn: ", ui_attr(PAIR_TITLE)),
-            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
-            ("   AI: ", ui_attr(PAIR_TITLE)),
-            ("FULL AUTONOMY", ui_attr(PAIR_GOOD, bold=True)),
-        ),
-    )
     safe_add_segments(
         stdscr,
         3,
         (
-            ("Permanent power: ", ui_attr(PAIR_TITLE)),
+            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
+            (state.race, ui_attr(PAIR_GOOD, bold=True)),
+            ("   World ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
+            ("   Turn ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
+            ("   AI ", ui_attr(PAIR_MUTED)),
+            ("AUTONOMOUS", ui_attr(PAIR_GOOD, bold=True)),
+        ),
+    )
+    safe_add_segments(
+        stdscr,
+        4,
+        (
+            ("PROGRESS  ", ui_attr(PAIR_TITLE, bold=True)),
+            ("Power ", ui_attr(PAIR_MUTED)),
             (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
-            ("   Worlds completed: ", ui_attr(PAIR_TITLE)),
+            ("   Victories ", ui_attr(PAIR_MUTED)),
             (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
-            ("   Enemy scale: ", ui_attr(PAIR_TITLE)),
+            ("   Enemy ", ui_attr(PAIR_MUTED)),
             (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
         ),
     )
     if world is not None:
         safe_add_segments(
             stdscr,
-            4,
+            5,
             (
-                ("Scenario seed: ", ui_attr(PAIR_TITLE)),
+                ("WORLD  ", ui_attr(PAIR_TITLE, bold=True)),
+                ("Seed ", ui_attr(PAIR_MUTED)),
                 (world.fingerprint, ui_attr(PAIR_INFO)),
-                ("   Territories: ", ui_attr(PAIR_TITLE)),
+                ("   Territories ", ui_attr(PAIR_MUTED)),
                 (str(world.territory_count), ui_attr(PAIR_WORLD)),
-                ("   Rivals: ", ui_attr(PAIR_TITLE)),
+                ("   Rivals ", ui_attr(PAIR_MUTED)),
                 (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
-                ("   Shrine sites: ", ui_attr(PAIR_TITLE)),
+                ("   Shrines ", ui_attr(PAIR_MUTED)),
                 (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
             ),
         )
@@ -765,30 +850,36 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     next_tech = eligible[0] if eligible else "awaiting verified prerequisites"
     safe_add_segments(
         stdscr,
-        5,
+        6,
         (
-            ("AI focus: ", ui_attr(PAIR_TITLE)),
+            ("AUTONOMY  ", ui_attr(PAIR_TITLE, bold=True)),
+            ("Focus ", ui_attr(PAIR_MUTED)),
             (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
-            ("   Operations: ", ui_attr(PAIR_TITLE)),
+            ("   Operations ", ui_attr(PAIR_MUTED)),
             (
                 f"{state.world_actions}/{state.world_action_goal()}",
                 ui_attr(PAIR_WORLD, bold=True),
             ),
-            ("   Next research: ", ui_attr(PAIR_TITLE)),
+            ("   Research ", ui_attr(PAIR_MUTED)),
             (next_tech, ui_attr(PAIR_RESEARCH)),
         ),
     )
 
+    draw_divider(stdscr, 7, width, pair=PAIR_MUTED)
     safe_addstr(
         stdscr,
-        7,
+        8,
         0,
-        "Chronicle — newest five autonomous actions",
+        "CHRONICLE · LATEST FIVE ACTIONS",
         ui_attr(PAIR_WORLD, bold=True),
     )
-    row = 8
+
+    row = 10
+    max_chronicle_row = max(row, height - 4)
     for entry in reversed(state.chronicle):
-        prefix = f"{entry.at} — "
+        if row >= max_chronicle_row:
+            break
+        prefix = f"{entry.at}  "
         available = max(16, width - len(prefix) - 1)
         parts = list(wrapped_lines(entry.detail, available))
         detail_attr = ui_attr(chronicle_pair_for_detail(entry.detail))
@@ -796,26 +887,27 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         safe_addstr(stdscr, row, len(prefix), parts[0], detail_attr)
         row += 1
         for continuation in parts[1:]:
-            if row >= height - 4:
+            if row >= max_chronicle_row:
                 break
             safe_addstr(stdscr, row, len(prefix), continuation, detail_attr)
             row += 1
-        if row >= height - 4:
-            break
 
+    draw_divider(stdscr, height - 3, width, pair=PAIR_MUTED)
+    status = "FULL AUTONOMY · one decision per minute · permanent endless progression"
     safe_addstr(
         stdscr,
         height - 2,
-        0,
-        "FULL AUTONOMY ACTIVE — no gameplay controls. Q exits the program only.",
-        ui_attr(PAIR_WARNING, bold=True),
+        center_x(width, status),
+        status,
+        ui_attr(PAIR_GOOD, bold=True),
     )
+    footer = "Q quit   •   silent autosave every second   •   no manual strategy controls"
     safe_addstr(
         stdscr,
         height - 1,
-        0,
-        "1 AI decision/minute • random eternal worlds • permanent progress • silent 1s autosave",
-        ui_attr(PAIR_GOOD),
+        center_x(width, footer),
+        footer,
+        ui_attr(PAIR_MUTED),
     )
     stdscr.refresh()
 
@@ -827,15 +919,41 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
     stdscr.timeout(100)
 
     state = load_state()
-    state.bootstrap_autonomous_campaign()
-    offline_report = apply_offline_progress(state)
+    race_index = RACES.index(state.race) if state.race in RACES else 0
     last_save = time.monotonic()
 
-    render(stdscr, state)
-    show_offline_popup(stdscr, offline_report)
+    if state.race:
+        offline_report = apply_offline_progress(state)
+        render(stdscr, state)
+        show_offline_popup(stdscr, offline_report)
 
     running = True
     while running:
+        if not state.race:
+            render_race_selection(stdscr, race_index)
+            key = stdscr.getch()
+            if key == -1:
+                continue
+            if key in (ord("q"), ord("Q")):
+                running = False
+                continue
+            if key in (curses.KEY_UP, ord("w"), ord("W")):
+                race_index = (race_index - 1) % len(RACES)
+                continue
+            if key in (curses.KEY_DOWN, ord("s"), ord("S")):
+                race_index = (race_index + 1) % len(RACES)
+                continue
+            if ord("1") <= key <= ord("7"):
+                race_index = key - ord("1")
+                state.select_race(RACES[race_index])
+                silent_save(state)
+                continue
+            if key in (curses.KEY_ENTER, 10, 13):
+                state.select_race(RACES[race_index])
+                silent_save(state)
+                continue
+            continue
+
         now = time.time()
         state.apply_due_assistant_decisions(now)
 
@@ -849,8 +967,8 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
         if key in (ord("q"), ord("Q")):
             running = False
 
-    silent_save(state)
-
+    if state.race:
+        silent_save(state)
 
 def main() -> None:
     curses.wrapper(run_game)
