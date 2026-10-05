@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
-"""Deadlock II: Shrine Wars — Chronicle-first curses strategy foundation.
+"""Deadlock II: Shrine Wars — Chronicle-first endless curses strategy game.
 
-All exposed game names and rule data in this prototype are restricted to
-Deadlock II canon. The one-decision-per-minute automation cadence, silent
-one-second autosave, and Chronicle presentation are project rules.
+Canon game names and rule data remain restricted to Deadlock II material.
+The endless campaign, one-decision-per-minute automation, permanent progression,
+uncapped suffix formatting, silent one-second autosave, and Chronicle-first
+presentation are project rules layered around the canon scenario/campaign loop.
 """
 
 from __future__ import annotations
 
 import curses
 import json
+import math
 import os
+import random
+import secrets
+import sys
 import textwrap
 import time
 from collections import deque
@@ -19,7 +24,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Deque, Iterable, Optional
 
-APP_TITLE = "Deadlock II: Shrine Wars — Chronicle Command"
+if hasattr(sys, "set_int_max_str_digits"):
+    sys.set_int_max_str_digits(0)
+
+APP_TITLE = "Deadlock II: Shrine Wars — Eternal Chronicle"
 SAVE_PATH = Path.home() / ".deadlock2_shrine_wars.json"
 AUTOSAVE_INTERVAL_SECONDS = 1.0
 ASSISTANT_INTERVAL_SECONDS = 60.0
@@ -60,8 +68,6 @@ SHRINE_TYPES = (
     "Underwater Shrine",
 )
 
-# Canon metal values described by the Deadlock II manual:
-# Endurium and Steel are worth five Iron; Tridium is worth ten Iron.
 METAL_VALUES = {
     "Iron": 1,
     "Steel": 5,
@@ -76,9 +82,6 @@ class TechnologyRule:
     effect: str
 
 
-# Resource/production technologies whose prerequisites and effects are explicitly
-# described by the official Deadlock II manual. This intentionally remains a
-# focused subset until the complete technology table is imported and verified.
 TECHNOLOGIES: dict[str, TechnologyRule] = {
     "Nuclear Fusion": TechnologyRule(
         (),
@@ -132,9 +135,52 @@ TASK_TECH_REQUIREMENTS: dict[str, tuple[str, ...]] = {
 
 
 def timestamp_12h(epoch: Optional[float] = None) -> str:
-    """Return a compact 12-hour timestamp with minutes and no seconds."""
     moment = datetime.fromtimestamp(epoch if epoch is not None else time.time())
     return moment.strftime("%I:%M %p").lstrip("0")
+
+
+def generated_suffix(group: int) -> str:
+    """Return an uncapped suffix for a 1000-group.
+
+    1-4 use familiar K/M/B/T labels. Group 5 begins aa, then ab ... zz,
+    aaa ... forever. The algorithm has no final suffix.
+    """
+    if group <= 0:
+        return ""
+    familiar = {1: "K", 2: "M", 3: "B", 4: "T"}
+    if group in familiar:
+        return familiar[group]
+
+    index = group - 5
+    length = 2
+    while index >= 26 ** length:
+        index -= 26 ** length
+        length += 1
+
+    chars = ["a"] * length
+    for position in range(length - 1, -1, -1):
+        chars[position] = chr(ord("a") + (index % 26))
+        index //= 26
+    return "".join(chars)
+
+
+def format_big_number(value: int) -> str:
+    """Format arbitrary-precision integers without a suffix ceiling."""
+    sign = "-" if value < 0 else ""
+    scaled = abs(value)
+    if scaled < 1000:
+        return f"{value}"
+
+    group = 0
+    last_remainder = 0
+    while scaled >= 1000:
+        last_remainder = scaled % 1000
+        scaled //= 1000
+        group += 1
+
+    tenths = (last_remainder * 10) // 1000
+    decimal = f".{tenths}" if scaled < 100 and tenths else ""
+    return f"{sign}{scaled}{decimal}{generated_suffix(group)}"
 
 
 @dataclass
@@ -144,14 +190,91 @@ class ChronicleEntry:
 
 
 @dataclass
+class GeneratedMap:
+    """Persistent data for one procedurally generated scenario world."""
+
+    seed: int
+    territory_count: int
+    links: list[tuple[int, int]]
+    shrine_sites: list[tuple[int, str]]
+    rival_races: list[str]
+
+    @property
+    def fingerprint(self) -> str:
+        return f"{self.seed:016X}"[-12:]
+
+    @classmethod
+    def from_json_dict(cls, raw: dict) -> "GeneratedMap":
+        return cls(
+            seed=int(raw["seed"]),
+            territory_count=max(1, int(raw["territory_count"])),
+            links=[(int(a), int(b)) for a, b in raw.get("links", [])],
+            shrine_sites=[
+                (int(site), str(shrine))
+                for site, shrine in raw.get("shrine_sites", [])
+                if str(shrine) in SHRINE_TYPES
+            ],
+            rival_races=[
+                str(race) for race in raw.get("rival_races", [])
+                if str(race) in RACES
+            ],
+        )
+
+
+def build_random_map(player_race: str, seed: Optional[int] = None) -> GeneratedMap:
+    """Generate a fresh random scenario topology using canon races/shrine types."""
+    actual_seed = int(seed if seed is not None else secrets.randbits(63))
+    rng = random.Random(actual_seed)
+
+    territory_count = 18 + rng.randrange(13)
+    link_set: set[tuple[int, int]] = set()
+
+    # A connected ring guarantees every generated map is traversable.
+    for territory in range(territory_count):
+        a, b = sorted((territory, (territory + 1) % territory_count))
+        link_set.add((a, b))
+
+    # Random extra connections change strategic topology without ASCII-map UI.
+    for territory in range(territory_count):
+        extra = rng.randrange(territory_count)
+        if extra != territory:
+            a, b = sorted((territory, extra))
+            link_set.add((a, b))
+
+    shrine_count = 1 + rng.randrange(max(1, min(6, territory_count // 4)))
+    shrine_territories = rng.sample(range(territory_count), shrine_count)
+    shrine_sites = [
+        (territory, rng.choice(SHRINE_TYPES))
+        for territory in shrine_territories
+    ]
+
+    rival_pool = [race for race in RACES if race != player_race]
+    rival_count = 2 + rng.randrange(max(1, len(rival_pool) - 1))
+    rival_count = min(len(rival_pool), rival_count)
+    rival_races = rng.sample(rival_pool, rival_count)
+
+    return GeneratedMap(
+        seed=actual_seed,
+        territory_count=territory_count,
+        links=sorted(link_set),
+        shrine_sites=shrine_sites,
+        rival_races=rival_races,
+    )
+
+
+@dataclass
 class GameState:
     race: str = ""
     turn: int = 1
+    world_number: int = 1
+    worlds_completed: int = 0
+    permanent_power: int = 0
     assistant_enabled: bool = True
     assistant_focus: str = "Construction"
     assistant_decisions: int = 0
     manual_orders: int = 0
     researched_technologies: list[str] = field(default_factory=list)
+    world_map: Optional[GeneratedMap] = None
     last_assistant_epoch: float = field(default_factory=time.time)
     last_active_epoch: float = field(default_factory=time.time)
     chronicle: Deque[ChronicleEntry] = field(
@@ -167,10 +290,57 @@ class GameState:
         if race not in RACES:
             raise ValueError(f"Unknown canon race: {race}")
         self.race = race
+        if self.world_map is None:
+            self.world_map = build_random_map(self.race)
         self.add_chronicle(
-            f"Selected the {race} race for colony command and kept the Colony "
-            "Assistant enabled; all automated task choices are now checked "
-            "against verified Deadlock II technology requirements before use."
+            f"Selected the {race} race and generated Eternal World {self.world_number} "
+            f"with scenario seed {self.world_map.fingerprint}, "
+            f"{self.world_map.territory_count} territories, "
+            f"{len(self.world_map.shrine_sites)} canon shrine site(s), and "
+            f"{len(self.world_map.rival_races)} rival race(s); this campaign has no final world."
+        )
+
+    def ensure_world(self) -> None:
+        if self.race and self.world_map is None:
+            self.world_map = build_random_map(self.race)
+
+    def enemy_scale_rating(self) -> int:
+        """Uncapped integer scaling from world depth and permanent progression."""
+        world_pressure = self.world_number * self.world_number * 100
+        player_response = math.isqrt(max(0, self.permanent_power)) * 25
+        victory_pressure = self.worlds_completed * self.worlds_completed * 10
+        return 100 + world_pressure + player_response + victory_pressure
+
+    def complete_world(self, seed: Optional[int] = None) -> None:
+        """Convert a scenario victory into permanent progress and a new random map."""
+        self.ensure_world()
+        if self.world_map is None:
+            return
+
+        old_world = self.world_number
+        old_seed = self.world_map.seed
+        old_scale = self.enemy_scale_rating()
+        reward = old_scale * max(1, self.world_map.territory_count)
+
+        self.worlds_completed += 1
+        self.permanent_power += reward
+        self.world_number += 1
+        self.turn = 1
+
+        next_seed = seed
+        if next_seed is None:
+            next_seed = secrets.randbits(63)
+            while next_seed == old_seed:
+                next_seed = secrets.randbits(63)
+
+        self.world_map = build_random_map(self.race, next_seed)
+        self.add_chronicle(
+            f"Completed Eternal World {old_world} at enemy scale {format_big_number(old_scale)}, "
+            f"banked {format_big_number(reward)} permanent empire power, and retained all "
+            f"{len(self.researched_technologies)} researched canon technologies. Generated "
+            f"Eternal World {self.world_number} with new scenario seed {self.world_map.fingerprint}, "
+            f"{self.world_map.territory_count} territories, and enemy scale "
+            f"{format_big_number(self.enemy_scale_rating())}; progression has no cap or reset."
         )
 
     def has_technology(self, name: str) -> bool:
@@ -197,12 +367,6 @@ class GameState:
         return tuple(eligible)
 
     def complete_next_research(self) -> Optional[str]:
-        """Complete the next currently legal verified technology field.
-
-        Research speed is intentionally abstract in this prototype. This method
-        never invents research-point costs; it only enforces canon prerequisite
-        relationships and records the canon effect of the completed field.
-        """
         eligible = self.eligible_technologies()
         if not eligible:
             unresolved = [
@@ -226,7 +390,8 @@ class GameState:
         self.manual_orders += 1
         self.add_chronicle(
             f"Completed research order #{self.manual_orders}: {technology}, which "
-            f"requires {prerequisites}. Canon effect: {rule.effect}"
+            f"requires {prerequisites}. Canon effect: {rule.effect} This research is "
+            "permanent and carries into every later procedurally generated world."
         )
         return technology
 
@@ -251,27 +416,27 @@ class GameState:
     def issue_manual_order(self, order_name: str) -> None:
         self.manual_orders += 1
         self.add_chronicle(
-            f"Issued manual {order_name} order #{self.manual_orders} on Turn "
-            f"{self.turn}, preserving Colony Assistant focus on {self.assistant_focus} "
-            "and keeping the order inside Deadlock II's canon build, trade, research, "
-            "and attack strategy loop."
+            f"Issued manual {order_name} order #{self.manual_orders} on Eternal World "
+            f"{self.world_number}, Turn {self.turn}, against enemy scale "
+            f"{format_big_number(self.enemy_scale_rating())}; the order remains inside "
+            "Deadlock II's canon build, trade, research, and attack strategy loop."
         )
 
     def end_turn(self) -> None:
         previous = self.turn
         self.turn += 1
         self.add_chronicle(
-            f"Ended Turn {previous} and advanced the colony to Turn {self.turn}; "
-            f"the Colony Assistant remains {'enabled' if self.assistant_enabled else 'disabled'} "
-            f"with {self.assistant_focus} as its verified legal focus."
+            f"Ended Turn {previous} and advanced Eternal World {self.world_number} to "
+            f"Turn {self.turn}; enemy scale remains {format_big_number(self.enemy_scale_rating())} "
+            f"and the Colony Assistant remains {'enabled' if self.assistant_enabled else 'disabled'}."
         )
 
     def toggle_assistant(self) -> None:
         self.assistant_enabled = not self.assistant_enabled
         self.add_chronicle(
             f"{'Enabled' if self.assistant_enabled else 'Disabled'} the Colony "
-            f"Assistant on Turn {self.turn}; when enabled it makes exactly one "
-            "technology-legal strategic task decision per completed minute."
+            f"Assistant on Eternal World {self.world_number}; when enabled it makes "
+            "exactly one technology-legal strategic task decision per completed minute."
         )
 
     def make_assistant_decision(self, decision_epoch: float) -> None:
@@ -289,10 +454,10 @@ class GameState:
 
         gated_count = len(COLONY_ASSISTANT_TASKS) - len(legal_tasks)
         self.add_chronicle(
-            f"Colony Assistant decision #{self.assistant_decisions} changed focus "
-            f"from {previous} to {task} on Turn {self.turn}; the decision used only "
-            f"canon-legal tasks, with {gated_count} advanced task(s) currently blocked "
-            "by unresearched technology requirements.",
+            f"Colony Assistant decision #{format_big_number(self.assistant_decisions)} changed "
+            f"focus from {previous} to {task} on Eternal World {self.world_number}, Turn "
+            f"{self.turn}; enemy scale is {format_big_number(self.enemy_scale_rating())}, "
+            f"and {gated_count} advanced task(s) remain blocked by unresearched technology.",
             epoch=decision_epoch,
         )
 
@@ -309,6 +474,9 @@ class GameState:
     def to_json_dict(self) -> dict:
         data = asdict(self)
         data["chronicle"] = [asdict(entry) for entry in self.chronicle]
+        data["permanent_power"] = str(self.permanent_power)
+        data["world_number"] = str(self.world_number)
+        data["worlds_completed"] = str(self.worlds_completed)
         return data
 
     @classmethod
@@ -317,19 +485,30 @@ class GameState:
             name for name in raw.get("researched_technologies", [])
             if name in TECHNOLOGIES
         ]
+        world_raw = raw.get("world_map")
+        world_map = (
+            GeneratedMap.from_json_dict(world_raw)
+            if isinstance(world_raw, dict)
+            else None
+        )
         state = cls(
             race=raw.get("race", ""),
             turn=max(1, int(raw.get("turn", 1))),
+            world_number=max(1, int(raw.get("world_number", 1))),
+            worlds_completed=max(0, int(raw.get("worlds_completed", 0))),
+            permanent_power=max(0, int(raw.get("permanent_power", 0))),
             assistant_enabled=bool(raw.get("assistant_enabled", True)),
             assistant_focus=raw.get("assistant_focus", "Construction"),
             assistant_decisions=max(0, int(raw.get("assistant_decisions", 0))),
             manual_orders=max(0, int(raw.get("manual_orders", 0))),
             researched_technologies=verified_tech,
+            world_map=world_map,
             last_assistant_epoch=float(raw.get("last_assistant_epoch", time.time())),
             last_active_epoch=float(raw.get("last_active_epoch", time.time())),
         )
         if state.race and state.race not in RACES:
             state.race = ""
+            state.world_map = None
         if not state.can_use_task(state.assistant_focus):
             state.assistant_focus = "Construction"
         for entry in raw.get("chronicle", [])[-CHRONICLE_LIMIT:]:
@@ -337,6 +516,7 @@ class GameState:
             detail = str(entry.get("detail", "")).strip()
             if detail:
                 state.chronicle.append(ChronicleEntry(at=at, detail=detail))
+        state.ensure_world()
         return state
 
 
@@ -346,10 +526,10 @@ def load_state(path: Path = SAVE_PATH) -> GameState:
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
         return GameState.from_json_dict(raw)
-    except (OSError, ValueError, TypeError, json.JSONDecodeError):
+    except (OSError, ValueError, TypeError, KeyError, json.JSONDecodeError):
         state = GameState()
         state.add_chronicle(
-            "Started a fresh colony command because the previous save could not "
+            "Started a fresh eternal campaign because the previous save could not "
             "be read safely; no replacement faction, technology, or resource data was invented."
         )
         return state
@@ -382,9 +562,10 @@ def apply_offline_progress(
     state.last_active_epoch = current
     if away_seconds >= ASSISTANT_INTERVAL_SECONDS:
         state.add_chronicle(
-            f"Applied offline progress after {away_seconds // 60} completed "
-            f"minute(s) away, resolving {decisions} technology-legal Colony "
-            "Assistant decision(s) at exactly one decision per completed minute.",
+            f"Applied offline progress after {away_seconds // 60} completed minute(s) "
+            f"away, resolving {format_big_number(decisions)} technology-legal Colony "
+            "Assistant decision(s) at exactly one decision per completed minute while "
+            "preserving permanent eternal-campaign progression.",
             epoch=current,
         )
     return OfflineReport(away_seconds=away_seconds, decisions_applied=decisions)
@@ -421,9 +602,9 @@ def show_offline_popup(
     minutes = report.away_seconds // 60
     message = (
         f"Offline progress: {minutes} completed minute(s) passed while the game "
-        f"was closed. The Colony Assistant resolved {report.decisions_applied} "
+        f"was closed. The Colony Assistant resolved {format_big_number(report.decisions_applied)} "
         "technology-legal strategic decision(s), maintaining exactly one decision "
-        "per completed minute. Press any key to return to the Chronicle."
+        "per completed minute. Permanent campaign progress was retained. Press any key."
     )
     lines = list(wrapped_lines(message, max(24, width - 8)))
     start_y = max(1, (height - len(lines)) // 2)
@@ -459,41 +640,44 @@ def render(
             stdscr,
             min(height - 2, 11),
             0,
-            "Q quits. Autosave is silent every second.",
+            "Q quits. Autosave is silent every second. Campaign progression never resets.",
         )
         stdscr.refresh()
         return
 
+    state.ensure_world()
     selected_task = COLONY_ASSISTANT_TASKS[selected_task_index]
     missing = state.missing_task_requirements(selected_task)
     legality = "legal" if not missing else f"blocked by {', '.join(missing)}"
     assistant_status = "enabled" if state.assistant_enabled else "disabled"
     eligible = state.eligible_technologies()
     next_tech = eligible[0] if eligible else "blocked by prerequisites"
+    world = state.world_map
 
     safe_addstr(
         stdscr,
         2,
         0,
-        f"Race: {state.race}   Turn: {state.turn}   Colony Assistant: {assistant_status}",
+        f"Race: {state.race}   Eternal World: {format_big_number(state.world_number)}   Turn: {state.turn}   Assistant: {assistant_status}",
     )
     safe_addstr(
         stdscr,
         3,
         0,
-        f"Focus: {state.assistant_focus}   Decisions: {state.assistant_decisions}   Researched: {len(state.researched_technologies)}",
+        f"Permanent power: {format_big_number(state.permanent_power)}   Worlds completed: {format_big_number(state.worlds_completed)}   Enemy scale: {format_big_number(state.enemy_scale_rating())}",
     )
-    safe_addstr(
-        stdscr,
-        4,
-        0,
-        f"Selected task: {selected_task} [{legality}]",
-    )
+    if world is not None:
+        safe_addstr(
+            stdscr,
+            4,
+            0,
+            f"Scenario seed: {world.fingerprint}   Territories: {world.territory_count}   Rivals: {len(world.rival_races)}   Shrine sites: {len(world.shrine_sites)}",
+        )
     safe_addstr(
         stdscr,
         5,
         0,
-        f"Next verified research: {next_tech}   Metal value: Iron 1 / Steel 5 / Endurium 5 / Tridium 10",
+        f"Selected task: {selected_task} [{legality}]   Next verified research: {next_tech}",
     )
 
     safe_addstr(stdscr, 7, 0, "Chronicle — newest five actions", curses.A_BOLD)
@@ -513,15 +697,15 @@ def render(
             break
 
     controls = (
-        "[ / ] select task   Enter set focus   A assistant   B build   "
-        "T trade   R research   X attack   E end turn   Q quit"
+        "[ / ] task   Enter focus   A assistant   B build   T trade   "
+        "R research   X attack   E end turn   V world victory   Q quit"
     )
     safe_addstr(stdscr, height - 2, 0, controls)
     safe_addstr(
         stdscr,
         height - 1,
         0,
-        "No tabs/panels. Autosave: 1s silent. Automation: 1 legal decision/completed minute.",
+        "Eternal campaign: random worlds, permanent progress, uncapped scaling/suffixes, silent 1s save.",
     )
     stdscr.refresh()
 
@@ -587,6 +771,10 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
             state.issue_manual_order("Attack")
         elif key in (ord("e"), ord("E")):
             state.end_turn()
+        elif key in (ord("v"), ord("V")):
+            state.complete_world()
+            selected_task_index = COLONY_ASSISTANT_TASKS.index(state.assistant_focus)
+            silent_save(state)
 
     silent_save(state)
 
