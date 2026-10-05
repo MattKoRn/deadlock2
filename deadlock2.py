@@ -10,14 +10,20 @@ Chronicle-first presentation are project systems layered around the canon loop.
 from __future__ import annotations
 
 import curses
+import io
 import json
 import math
 import os
+import platform
 import random
 import secrets
+import shutil
+import subprocess
 import sys
 import textwrap
 import time
+import urllib.request
+import zipfile
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -32,6 +38,35 @@ SAVE_PATH = Path.home() / ".deadlock2_shrine_wars.json"
 AUTOSAVE_INTERVAL_SECONDS = 1.0
 ASSISTANT_INTERVAL_SECONDS = 60.0
 CHRONICLE_LIMIT = 5
+
+SYMBOL_FONT_FAMILY = "Noto Sans Symbols 2"
+SYMBOL_FONT_FILENAME = "NotoSansSymbols2-Regular.ttf"
+SYMBOL_FONT_RELEASE = "NotoSansSymbols2-v2.008"
+SYMBOL_FONT_URL = (
+    "https://github.com/notofonts/symbols/releases/download/"
+    "NotoSansSymbols2-v2.008/NotoSansSymbols2-v2.008.zip"
+)
+SYMBOL_FONT_MIN_BYTES = 100_000
+
+# One source of truth for all decorative Unicode used by the curses surface.
+# Noto Sans Symbols 2 covers the geometric/dingbat symbols while normal terminal
+# fonts provide the common box-drawing characters.
+UI_SYMBOLS = {
+    "live": "●",
+    "world": "◆",
+    "research": "✦",
+    "offline": "◌",
+    "event": "·",
+    "selected": "◆",
+    "unselected": "·",
+    "rail_live": "┃",
+    "rail_history": "│",
+    "separator": "·",
+    "progress_full": "━",
+    "progress_empty": "─",
+    "rule": "─",
+    "divider": "┄",
+}
 
 PAIR_TITLE = 1
 PAIR_WORLD = 2
@@ -171,6 +206,195 @@ METAL_VALUES = {
 }
 
 
+@dataclass(frozen=True)
+class SymbolFontReport:
+    available: bool
+    installed_now: bool = False
+    detail: str = ""
+
+
+def symbol_font_target(
+    system_name: Optional[str] = None,
+    *,
+    home: Optional[Path] = None,
+    local_appdata: Optional[str] = None,
+) -> Path:
+    """Return the user-local install target without requiring administrator rights."""
+    system = (system_name or platform.system()).lower()
+    user_home = home or Path.home()
+    if system == "windows":
+        base = Path(
+            local_appdata
+            or os.environ.get("LOCALAPPDATA", str(user_home / "AppData" / "Local"))
+        )
+        return base / "Microsoft" / "Windows" / "Fonts" / SYMBOL_FONT_FILENAME
+    if system == "darwin":
+        return user_home / "Library" / "Fonts" / SYMBOL_FONT_FILENAME
+    return user_home / ".local" / "share" / "fonts" / SYMBOL_FONT_FILENAME
+
+
+def symbol_font_candidates() -> tuple[Path, ...]:
+    """Return common user/system locations that prove the symbol font is available."""
+    system = platform.system().lower()
+    target = symbol_font_target(system)
+    candidates = [target]
+
+    if system == "windows":
+        windows_dir = Path(os.environ.get("WINDIR", r"C:\Windows"))
+        candidates.append(windows_dir / "Fonts" / SYMBOL_FONT_FILENAME)
+    elif system == "darwin":
+        candidates.extend(
+            [
+                Path("/Library/Fonts") / SYMBOL_FONT_FILENAME,
+                Path("/System/Library/Fonts") / SYMBOL_FONT_FILENAME,
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                Path.home() / ".fonts" / SYMBOL_FONT_FILENAME,
+                Path("/usr/share/fonts/truetype/noto") / SYMBOL_FONT_FILENAME,
+                Path("/usr/share/fonts/opentype/noto") / SYMBOL_FONT_FILENAME,
+            ]
+        )
+    return tuple(candidates)
+
+
+def symbol_font_available() -> bool:
+    """Check known font locations without requiring platform-specific packages."""
+    for candidate in symbol_font_candidates():
+        try:
+            if candidate.is_file() and candidate.stat().st_size >= SYMBOL_FONT_MIN_BYTES:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def choose_symbol_font_member(names: Iterable[str]) -> Optional[str]:
+    """Choose the regular Noto Sans Symbols 2 TTF from an official release archive."""
+    clean = [str(name) for name in names if str(name).lower().endswith(".ttf")]
+    preferred = [
+        name
+        for name in clean
+        if name.rsplit("/", 1)[-1].lower() == SYMBOL_FONT_FILENAME.lower()
+    ]
+    if preferred:
+        return preferred[0]
+    regular = [
+        name
+        for name in clean
+        if "notosanssymbols2" in name.lower() and "regular" in name.lower()
+    ]
+    if regular:
+        return regular[0]
+    fallback = [name for name in clean if "notosanssymbols2" in name.lower()]
+    return fallback[0] if fallback else None
+
+
+def refresh_symbol_font_registration(target: Path) -> None:
+    """Refresh the current user's font registry/cache where the OS supports it."""
+    system = platform.system().lower()
+
+    if system == "windows":
+        try:
+            import ctypes
+            import winreg
+
+            with winreg.CreateKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Microsoft\Windows NT\CurrentVersion\Fonts",
+            ) as key:
+                winreg.SetValueEx(
+                    key,
+                    f"{SYMBOL_FONT_FAMILY} (TrueType)",
+                    0,
+                    winreg.REG_SZ,
+                    str(target),
+                )
+
+            FR_PRIVATE = 0x10
+            HWND_BROADCAST = 0xFFFF
+            WM_FONTCHANGE = 0x001D
+            SMTO_ABORTIFHUNG = 0x0002
+            ctypes.windll.gdi32.AddFontResourceExW(str(target), FR_PRIVATE, 0)
+            result = ctypes.c_ulong()
+            ctypes.windll.user32.SendMessageTimeoutW(
+                HWND_BROADCAST,
+                WM_FONTCHANGE,
+                0,
+                0,
+                SMTO_ABORTIFHUNG,
+                1000,
+                ctypes.byref(result),
+            )
+        except (ImportError, OSError, AttributeError):
+            pass
+        return
+
+    if system == "linux":
+        cache = shutil.which("fc-cache")
+        if cache:
+            try:
+                subprocess.run(
+                    [cache, "-f", str(target.parent)],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=10,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+
+
+def install_symbol_font(timeout: float = 12.0) -> SymbolFontReport:
+    """Download and install the official Noto symbol font into the user profile."""
+    if symbol_font_available():
+        return SymbolFontReport(available=True)
+
+    target = symbol_font_target()
+    try:
+        request = urllib.request.Request(
+            SYMBOL_FONT_URL,
+            headers={"User-Agent": "Deadlock-II-Shrine-Wars/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=max(1.0, float(timeout))) as response:
+            archive_bytes = response.read()
+
+        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
+            member = choose_symbol_font_member(archive.namelist())
+            if member is None:
+                raise ValueError("official symbol-font archive contained no compatible TTF")
+            font_bytes = archive.read(member)
+
+        if len(font_bytes) < SYMBOL_FONT_MIN_BYTES:
+            raise ValueError("downloaded symbol font was unexpectedly small")
+
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_target = target.with_suffix(target.suffix + ".tmp")
+        temp_target.write_bytes(font_bytes)
+        os.replace(temp_target, target)
+        refresh_symbol_font_registration(target)
+        return SymbolFontReport(
+            available=True,
+            installed_now=True,
+            detail=(
+                f"Installed {SYMBOL_FONT_FAMILY} {SYMBOL_FONT_RELEASE} automatically "
+                f"for this user at {target}; Chronicle and interface symbols now use "
+                "the shared Unicode symbol set."
+            ),
+        )
+    except (OSError, ValueError, zipfile.BadZipFile, urllib.error.URLError) as error:
+        return SymbolFontReport(
+            available=False,
+            installed_now=False,
+            detail=(
+                f"Could not auto-install {SYMBOL_FONT_FAMILY}: {error}. "
+                "The game continues safely with the terminal's existing Unicode fonts."
+            ),
+        )
+
+
 def init_colors() -> None:
     """Enable semantic colors with a safe monochrome fallback."""
     global COLORS_ACTIVE
@@ -269,7 +493,10 @@ def progress_meter(current: int, total: int, width: int = 16) -> str:
     safe_width = max(4, int(width))
     safe_current = max(0, min(int(current), safe_total))
     filled = min(safe_width, (safe_current * safe_width) // safe_total)
-    return "●" * filled + "·" * (safe_width - filled)
+    return (
+        UI_SYMBOLS["live"] * filled
+        + UI_SYMBOLS["unselected"] * (safe_width - filled)
+    )
 
 
 def polished_progress_bar(current: int, total: int, width: int = 16) -> str:
@@ -278,7 +505,10 @@ def polished_progress_bar(current: int, total: int, width: int = 16) -> str:
     safe_width = max(4, int(width))
     safe_current = max(0, min(int(current), safe_total))
     filled = min(safe_width, (safe_current * safe_width) // safe_total)
-    return "━" * filled + "─" * (safe_width - filled)
+    return (
+        UI_SYMBOLS["progress_full"] * filled
+        + UI_SYMBOLS["progress_empty"] * (safe_width - filled)
+    )
 
 
 def chronicle_gap(index: int) -> int:
@@ -331,7 +561,7 @@ def section_rule(title: str, width: int) -> str:
     remaining = safe_width - len(label)
     left = remaining // 2
     right = remaining - left
-    return "─" * left + label + "─" * right
+    return UI_SYMBOLS["rule"] * left + label + UI_SYMBOLS["rule"] * right
 
 
 def terminal_layout_mode(height: int, width: int) -> str:
@@ -346,12 +576,12 @@ def terminal_layout_mode(height: int, width: int) -> str:
 def chronicle_glyph(label: str) -> str:
     """Give Chronicle categories distinct but restrained visual markers."""
     return {
-        "WORLD": "◆",
-        "RESEARCH": "✦",
-        "OFFLINE": "◌",
-        "AI": "●",
-        "EVENT": "·",
-    }.get(label, "·")
+        "WORLD": UI_SYMBOLS["world"],
+        "RESEARCH": UI_SYMBOLS["research"],
+        "OFFLINE": UI_SYMBOLS["offline"],
+        "AI": UI_SYMBOLS["live"],
+        "EVENT": UI_SYMBOLS["event"],
+    }.get(label, UI_SYMBOLS["event"])
 
 
 def humanize_duration(seconds: int) -> str:
@@ -370,7 +600,10 @@ def selection_dots(count: int, selected_index: int) -> str:
     """Return a restrained Unicode position indicator for race selection."""
     safe_count = max(1, int(count))
     safe_index = max(0, min(int(selected_index), safe_count - 1))
-    return " ".join("●" if index == safe_index else "·" for index in range(safe_count))
+    return " ".join(
+        UI_SYMBOLS["live"] if index == safe_index else UI_SYMBOLS["unselected"]
+        for index in range(safe_count)
+    )
 
 
 def newest_event_attr(pair: int, newest: bool) -> int:
@@ -380,7 +613,7 @@ def newest_event_attr(pair: int, newest: bool) -> int:
 
 def chronicle_rail(newest: bool) -> str:
     """Return a subtle vertical rail that anchors Chronicle entries visually."""
-    return "┃" if newest else "│"
+    return UI_SYMBOLS["rail_live"] if newest else UI_SYMBOLS["rail_history"]
 
 
 def compact_metric(label: str, value: str, *, compact: bool = False) -> str:
@@ -402,7 +635,7 @@ def chronicle_recency_attr(pair: int, index: int) -> int:
 
 def status_separator() -> tuple[str, int]:
     """Return the shared quiet separator used between live status metrics."""
-    return ("   ·   ", ui_attr(PAIR_MUTED, dim=True))
+    return (f"   {UI_SYMBOLS['separator']}   ", ui_attr(PAIR_MUTED, dim=True))
 
 
 def split_chronicle_detail(detail: str) -> tuple[str, str]:
@@ -1317,7 +1550,11 @@ def draw_divider(
     """Draw a Unicode section rule aligned to the shared content column."""
     if width <= 2:
         return
-    line = section_rule(title, width) if title else "┄" * width
+    line = (
+        section_rule(title, width)
+        if title
+        else UI_SYMBOLS["divider"] * width
+    )
     safe_addstr(stdscr, y, max(0, x), line, ui_attr(pair, dim=True))
 
 
@@ -1432,7 +1669,7 @@ def render_race_selection(
     widest = max(len(race) for race in RACES)
     for index, race in enumerate(RACES):
         selected = index == selected_index
-        marker = "◆" if selected else "·"
+        marker = UI_SYMBOLS["selected"] if selected else UI_SYMBOLS["unselected"]
         label = f"{marker}  {index + 1}   {race:<{widest}}"
         if selected:
             label = f"  {label}  "
@@ -1528,7 +1765,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     countdown = format_countdown(seconds_until_next_decision(state.last_assistant_epoch))
     sep = status_separator()
     live_status = [
-        ("● AUTONOMY", ui_attr(PAIR_GOOD, bold=True)),
+        (f"{UI_SYMBOLS['live']} AUTONOMY", ui_attr(PAIR_GOOD, bold=True)),
         sep,
         ("NEXT ", ui_attr(PAIR_MUTED, dim=True)),
         (countdown, ui_attr(PAIR_WARNING, bold=True)),
@@ -1726,7 +1963,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     draw_divider(stdscr, height - 2, content_width, x=content_x)
 
     footer_segments = (
-        ("● AUTO", ui_attr(PAIR_GOOD, bold=True)),
+        (f"{UI_SYMBOLS['live']} AUTO", ui_attr(PAIR_GOOD, bold=True)),
         ("   ", ui_attr(PAIR_MUTED)),
         ("NEXT ", ui_attr(PAIR_MUTED, dim=True)),
         (countdown, ui_attr(PAIR_WARNING, bold=True)),
@@ -1744,7 +1981,10 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     stdscr.refresh()
 
 
-def run_game(stdscr: "curses._CursesWindow") -> None:
+def run_game(
+    stdscr: "curses._CursesWindow",
+    symbol_report: Optional[SymbolFontReport] = None,
+) -> None:
     curses.curs_set(0)
     init_colors()
     stdscr.nodelay(True)
@@ -1753,6 +1993,11 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
     state = load_state()
     race_index = RACES.index(state.race) if state.race in RACES else 0
     last_save = time.monotonic()
+    symbol_notice_pending = bool(symbol_report and symbol_report.detail)
+
+    if state.race and symbol_notice_pending:
+        state.add_chronicle(symbol_report.detail)
+        symbol_notice_pending = False
 
     if state.race:
         offline_report = apply_offline_progress(state)
@@ -1778,10 +2023,16 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
             if ord("1") <= key <= ord("7"):
                 race_index = key - ord("1")
                 state.select_race(RACES[race_index])
+                if symbol_notice_pending and symbol_report is not None:
+                    state.add_chronicle(symbol_report.detail)
+                    symbol_notice_pending = False
                 silent_save(state)
                 continue
             if key in (curses.KEY_ENTER, 10, 13):
                 state.select_race(RACES[race_index])
+                if symbol_notice_pending and symbol_report is not None:
+                    state.add_chronicle(symbol_report.detail)
+                    symbol_notice_pending = False
                 silent_save(state)
                 continue
             continue
@@ -1803,7 +2054,8 @@ def run_game(stdscr: "curses._CursesWindow") -> None:
         silent_save(state)
 
 def main() -> None:
-    curses.wrapper(run_game)
+    symbol_report = install_symbol_font()
+    curses.wrapper(run_game, symbol_report)
 
 
 if __name__ == "__main__":
