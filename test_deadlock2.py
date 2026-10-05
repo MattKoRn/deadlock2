@@ -230,6 +230,28 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(deadlock2.fit_text("Deadlock", 5), "Dead…")
         self.assertEqual(deadlock2.fit_text("Deadlock", 1), "D")
 
+    def test_section_rule_centers_title(self):
+        rule = deadlock2.section_rule("CHRONICLE", 30)
+        self.assertEqual(len(rule), 30)
+        self.assertIn(" CHRONICLE ", rule)
+        self.assertTrue(rule.startswith("─"))
+        self.assertTrue(rule.endswith("─"))
+
+    def test_layout_mode_handles_tiny_compact_and_wide(self):
+        self.assertEqual(deadlock2.terminal_layout_mode(12, 50), "tiny")
+        self.assertEqual(deadlock2.terminal_layout_mode(20, 80), "compact")
+        self.assertEqual(deadlock2.terminal_layout_mode(30, 120), "wide")
+
+    def test_chronicle_glyphs_are_semantic(self):
+        self.assertEqual(deadlock2.chronicle_glyph("WORLD"), "◆")
+        self.assertEqual(deadlock2.chronicle_glyph("RESEARCH"), "✦")
+        self.assertEqual(deadlock2.chronicle_glyph("AI"), "●")
+
+    def test_humanize_duration_is_compact(self):
+        self.assertEqual(deadlock2.humanize_duration(45), "45s")
+        self.assertEqual(deadlock2.humanize_duration(125), "2m 05s")
+        self.assertEqual(deadlock2.humanize_duration(3725), "1h 02m")
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
