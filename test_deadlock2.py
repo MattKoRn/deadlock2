@@ -82,8 +82,57 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
     def test_autonomous_research_unlocks_permanently(self):
         state = deadlock2.GameState()
         result = state.resolve_autonomous_research()
-        self.assertEqual(state.researched_technologies, ["Nuclear Fusion"])
-        self.assertIn("Nuclear Fusion", result)
+        self.assertEqual(state.researched_technologies, ["Advanced Medicine"])
+        self.assertIn("Advanced Medicine", result)
+
+    def test_imported_technology_table_has_no_unreachable_dead_end(self):
+        state = deadlock2.GameState()
+        safety = len(deadlock2.TECHNOLOGIES) + 1
+        for _ in range(safety):
+            eligible = state.eligible_technologies()
+            if not eligible:
+                break
+            state.resolve_autonomous_research()
+        self.assertEqual(
+            set(state.researched_technologies),
+            set(deadlock2.TECHNOLOGIES),
+        )
+
+    def test_contextual_strategy_builds_researches_trades_and_attacks_by_pressure(self):
+        state = deadlock2.GameState()
+        state.select_race("Human", seed=20, epoch=1_000.0)
+        goal = state.world_action_goal()
+
+        action, reason = state.choose_strategic_action()
+        self.assertEqual(action, "Build")
+        self.assertIn("opening third", reason)
+
+        state.world_actions = goal // 2
+        state.assistant_decisions = 1
+        action, reason = state.choose_strategic_action()
+        self.assertEqual(action, "Trade")
+        self.assertIn("middle third", reason)
+
+        state.assistant_decisions = 3
+        action, reason = state.choose_strategic_action()
+        self.assertEqual(action, "Research")
+        self.assertIn("research cadence", reason)
+
+        state.assistant_decisions = 4
+        state.world_actions = (goal * 2 + 2) // 3
+        action, reason = state.choose_strategic_action()
+        self.assertEqual(action, "Attack")
+        self.assertIn("final third", reason)
+
+    def test_assistant_focus_follows_context_without_using_locked_tasks(self):
+        state = deadlock2.GameState()
+        state.select_race("Human", seed=21, epoch=1_000.0)
+        self.assertEqual(state.choose_assistant_task("Build"), "Construction")
+        self.assertEqual(state.choose_assistant_task("Trade"), "Trade")
+        self.assertEqual(state.choose_assistant_task("Research"), "Research")
+        self.assertEqual(state.choose_assistant_task("Attack"), "Energy")
+        state.researched_technologies.append("Electronics")
+        self.assertEqual(state.choose_assistant_task("Attack"), "Electronic Parts")
 
     def test_assistant_never_selects_blocked_task(self):
         state = deadlock2.GameState()
