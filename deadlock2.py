@@ -53,6 +53,17 @@ RACES = (
     "Uva Mosk",
 )
 
+# Canon Planet View flag colors listed in the official Deadlock II manual.
+RACE_FLAG_COLORS = {
+    "ChCh-t": "Yellow",
+    "Cyth": "Black",
+    "Human": "Gray",
+    "Maug": "Dark Blue",
+    "Re'Lu": "Greenish Blue",
+    "Tarth": "Red",
+    "Uva Mosk": "Green",
+}
+
 COLONY_ASSISTANT_TASKS = (
     "Construction",
     "Upgrade",
@@ -140,6 +151,54 @@ def chronicle_pair_for_detail(detail: str) -> int:
     if "could not" in lowered or "blocked" in lowered:
         return PAIR_DANGER
     return PAIR_GOOD
+
+
+def chronicle_label_for_detail(detail: str) -> str:
+    """Return a compact visual category for one Chronicle entry."""
+    lowered = detail.lower()
+    if "completed eternal world" in lowered or "generated eternal world" in lowered:
+        return "WORLD"
+    if "offline progress" in lowered:
+        return "OFFLINE"
+    if "research" in lowered:
+        return "RESEARCH"
+    if "autonomous decision" in lowered:
+        return "AI"
+    return "EVENT"
+
+
+def race_ui_pair(race: str) -> int:
+    """Approximate canon flag colors using the terminal's small color palette."""
+    return {
+        "ChCh-t": PAIR_WORLD,
+        "Cyth": PAIR_MUTED,
+        "Human": PAIR_MUTED,
+        "Maug": PAIR_INFO,
+        "Re'Lu": PAIR_TITLE,
+        "Tarth": PAIR_DANGER,
+        "Uva Mosk": PAIR_GOOD,
+    }.get(race, PAIR_INFO)
+
+
+def progress_meter(current: int, total: int, width: int = 16) -> str:
+    """Return a compact Unicode meter used only for visual progress."""
+    safe_total = max(1, int(total))
+    safe_width = max(4, int(width))
+    safe_current = max(0, min(int(current), safe_total))
+    filled = min(safe_width, (safe_current * safe_width) // safe_total)
+    return "●" * filled + "·" * (safe_width - filled)
+
+
+def seconds_until_next_decision(
+    last_decision_epoch: float,
+    now: Optional[float] = None,
+) -> int:
+    """Return the visible countdown to the next one-minute AI decision."""
+    current = now if now is not None else time.time()
+    elapsed = max(0.0, current - last_decision_epoch)
+    if elapsed >= ASSISTANT_INTERVAL_SECONDS:
+        return 0
+    return max(0, int(math.ceil(ASSISTANT_INTERVAL_SECONDS - elapsed)))
 
 
 @dataclass(frozen=True)
@@ -731,8 +790,10 @@ def render_race_selection(
     stdscr: "curses._CursesWindow",
     selected_index: int,
 ) -> None:
+    """Render the single manual choice as a clean, game-like opening screen."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
+    selected_race = RACES[selected_index]
 
     title = "DEADLOCK II · SHRINE WARS"
     subtitle = "ETERNAL CHRONICLE"
@@ -740,7 +801,7 @@ def render_race_selection(
     safe_addstr(stdscr, 1, center_x(width, subtitle), subtitle, ui_attr(PAIR_WORLD, bold=True))
     draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
 
-    heading = "CHOOSE YOUR RACE"
+    heading = "SELECT YOUR PERMANENT RACE"
     safe_addstr(
         stdscr,
         4,
@@ -748,33 +809,38 @@ def render_race_selection(
         heading,
         ui_attr(PAIR_GOOD, bold=True),
     )
-    explanation = "Your race is permanent for this save. Everything after selection is autonomous."
-    safe_addstr(
-        stdscr,
-        5,
-        center_x(width, explanation),
-        explanation,
-        ui_attr(PAIR_MUTED),
-    )
+    copy = "One choice now. Full autonomy begins immediately after confirmation."
+    safe_addstr(stdscr, 5, center_x(width, copy), copy, ui_attr(PAIR_MUTED))
 
     start_y = 7
     widest = max(len(race) for race in RACES)
     for index, race in enumerate(RACES):
-        marker = "›" if index == selected_index else " "
-        label = f"{marker} {index + 1}  {race:<{widest}}"
-        attr = (
-            ui_attr(PAIR_GOOD, bold=True, reverse=True)
-            if index == selected_index
-            else ui_attr(PAIR_INFO)
-        )
+        selected = index == selected_index
+        marker = "◆" if selected else "◇"
+        label = f"{marker}  {index + 1}  {race:<{widest}}"
+        pair = race_ui_pair(race)
+        attr = ui_attr(pair, bold=selected, reverse=selected)
         safe_addstr(stdscr, start_y + index, center_x(width, label), label, attr)
 
-    footer_y = min(height - 3, start_y + len(RACES) + 2)
-    draw_divider(stdscr, footer_y, width, pair=PAIR_MUTED)
-    hint = "↑ ↓ move   Enter confirm   1–7 quick select   Q quit"
+    info_y = start_y + len(RACES) + 1
+    if info_y < height - 4:
+        draw_divider(stdscr, info_y, width, pair=PAIR_MUTED)
+        flag_line = (
+            f"{selected_race}  ·  Canon Planet View flag: "
+            f"{RACE_FLAG_COLORS[selected_race]}  ·  Selection {selected_index + 1}/{len(RACES)}"
+        )
+        safe_addstr(
+            stdscr,
+            info_y + 1,
+            center_x(width, flag_line),
+            flag_line,
+            ui_attr(race_ui_pair(selected_race), bold=True),
+        )
+
+    hint = "↑ ↓ / W S move    Enter confirm    1–7 quick select    Q quit"
     safe_addstr(
         stdscr,
-        min(height - 2, footer_y + 1),
+        height - 2,
         center_x(width, hint),
         hint,
         ui_attr(PAIR_WARNING, bold=True),
@@ -791,109 +857,125 @@ def render_race_selection(
 
 
 def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
+    """Render one clean text surface with Chronicle as the visual center."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     state.ensure_world()
     world = state.world_map
 
     title = "DEADLOCK II · SHRINE WARS"
-    subtitle = "ETERNAL CHRONICLE"
+    subtitle = f"ETERNAL CHRONICLE  ·  {state.race}"
     safe_addstr(stdscr, 0, center_x(width, title), title, ui_attr(PAIR_TITLE, bold=True))
-    safe_addstr(stdscr, 1, center_x(width, subtitle), subtitle, ui_attr(PAIR_WORLD, bold=True))
-    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
-
-    safe_add_segments(
-        stdscr,
-        3,
-        (
-            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
-            (state.race, ui_attr(PAIR_GOOD, bold=True)),
-            ("   World ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("   Turn ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
-            ("   AI ", ui_attr(PAIR_MUTED)),
-            ("AUTONOMOUS", ui_attr(PAIR_GOOD, bold=True)),
-        ),
-    )
-    safe_add_segments(
-        stdscr,
-        4,
-        (
-            ("PROGRESS  ", ui_attr(PAIR_TITLE, bold=True)),
-            ("Power ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
-            ("   Victories ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
-            ("   Enemy ", ui_attr(PAIR_MUTED)),
-            (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
-        ),
-    )
-    if world is not None:
-        safe_add_segments(
-            stdscr,
-            5,
-            (
-                ("WORLD  ", ui_attr(PAIR_TITLE, bold=True)),
-                ("Seed ", ui_attr(PAIR_MUTED)),
-                (world.fingerprint, ui_attr(PAIR_INFO)),
-                ("   Territories ", ui_attr(PAIR_MUTED)),
-                (str(world.territory_count), ui_attr(PAIR_WORLD)),
-                ("   Rivals ", ui_attr(PAIR_MUTED)),
-                (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
-                ("   Shrines ", ui_attr(PAIR_MUTED)),
-                (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
-            ),
-        )
-
-    eligible = state.eligible_technologies()
-    next_tech = eligible[0] if eligible else "awaiting verified prerequisites"
-    safe_add_segments(
-        stdscr,
-        6,
-        (
-            ("AUTONOMY  ", ui_attr(PAIR_TITLE, bold=True)),
-            ("Focus ", ui_attr(PAIR_MUTED)),
-            (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
-            ("   Operations ", ui_attr(PAIR_MUTED)),
-            (
-                f"{state.world_actions}/{state.world_action_goal()}",
-                ui_attr(PAIR_WORLD, bold=True),
-            ),
-            ("   Research ", ui_attr(PAIR_MUTED)),
-            (next_tech, ui_attr(PAIR_RESEARCH)),
-        ),
-    )
-
-    draw_divider(stdscr, 7, width, pair=PAIR_MUTED)
     safe_addstr(
         stdscr,
-        8,
-        0,
-        "CHRONICLE · LATEST FIVE ACTIONS",
-        ui_attr(PAIR_WORLD, bold=True),
+        1,
+        center_x(width, subtitle),
+        subtitle,
+        ui_attr(race_ui_pair(state.race), bold=True),
     )
+    draw_divider(stdscr, 2, width, pair=PAIR_TITLE)
 
-    row = 10
+    if width >= 88:
+        empire_segments = (
+            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
+            ("World ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
+            ("  Victory ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
+            ("  Power ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
+            ("  Enemy ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
+        )
+    else:
+        empire_segments = (
+            ("EMPIRE  ", ui_attr(PAIR_TITLE, bold=True)),
+            ("W", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
+            ("  V", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
+            ("  Power ", ui_attr(PAIR_MUTED)),
+            (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
+        )
+    safe_add_segments(stdscr, 3, empire_segments)
+
+    if world is not None:
+        world_segments = (
+            ("WORLD   ", ui_attr(PAIR_TITLE, bold=True)),
+            ("Seed ", ui_attr(PAIR_MUTED)),
+            (world.fingerprint, ui_attr(PAIR_INFO)),
+            ("  Territories ", ui_attr(PAIR_MUTED)),
+            (str(world.territory_count), ui_attr(PAIR_WORLD)),
+            ("  Rivals ", ui_attr(PAIR_MUTED)),
+            (str(len(world.rival_races)), ui_attr(PAIR_DANGER)),
+            ("  Shrines ", ui_attr(PAIR_MUTED)),
+            (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
+        )
+        safe_add_segments(stdscr, 4, world_segments)
+
+    goal = state.world_action_goal()
+    meter_width = 18 if width >= 88 else 10
+    meter = progress_meter(state.world_actions, goal, meter_width)
+    next_seconds = seconds_until_next_decision(state.last_assistant_epoch)
+    eligible = state.eligible_technologies()
+    next_tech = eligible[0] if eligible else "awaiting prerequisites"
+
+    if width >= 88:
+        autonomy_segments = (
+            ("AI      ", ui_attr(PAIR_TITLE, bold=True)),
+            (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
+            ("  ", ui_attr(PAIR_MUTED)),
+            (meter, ui_attr(PAIR_GOOD)),
+            (f" {state.world_actions}/{goal}", ui_attr(PAIR_WORLD, bold=True)),
+            ("  Next ", ui_attr(PAIR_MUTED)),
+            (f"{next_seconds}s", ui_attr(PAIR_WARNING, bold=True)),
+            ("  Research ", ui_attr(PAIR_MUTED)),
+            (next_tech, ui_attr(PAIR_RESEARCH)),
+        )
+    else:
+        autonomy_segments = (
+            ("AI      ", ui_attr(PAIR_TITLE, bold=True)),
+            (meter, ui_attr(PAIR_GOOD)),
+            (f" {state.world_actions}/{goal}", ui_attr(PAIR_WORLD, bold=True)),
+            ("  Next ", ui_attr(PAIR_MUTED)),
+            (f"{next_seconds}s", ui_attr(PAIR_WARNING, bold=True)),
+            ("  Focus ", ui_attr(PAIR_MUTED)),
+            (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
+        )
+    safe_add_segments(stdscr, 5, autonomy_segments)
+
+    draw_divider(stdscr, 6, width, pair=PAIR_MUTED)
+    chronicle_title = "CHRONICLE  ·  LATEST FIVE ACTIONS"
+    safe_addstr(stdscr, 7, 0, chronicle_title, ui_attr(PAIR_WORLD, bold=True))
+
+    row = 9
     max_chronicle_row = max(row, height - 4)
     for entry in reversed(state.chronicle):
         if row >= max_chronicle_row:
             break
-        prefix = f"{entry.at}  "
-        available = max(16, width - len(prefix) - 1)
+        label = chronicle_label_for_detail(entry.detail)
+        label_text = f"{label:<8}"
+        prefix = f"{entry.at:<8} "
+        available = max(16, width - len(label_text) - len(prefix) - 2)
         parts = list(wrapped_lines(entry.detail, available))
-        detail_attr = ui_attr(chronicle_pair_for_detail(entry.detail))
-        safe_addstr(stdscr, row, 0, prefix, ui_attr(PAIR_TITLE, bold=True))
-        safe_addstr(stdscr, row, len(prefix), parts[0], detail_attr)
+        detail_pair = chronicle_pair_for_detail(entry.detail)
+
+        safe_addstr(stdscr, row, 0, label_text, ui_attr(detail_pair, bold=True))
+        safe_addstr(stdscr, row, 9, prefix, ui_attr(PAIR_TITLE, bold=True))
+        safe_addstr(stdscr, row, 18, parts[0], ui_attr(detail_pair))
         row += 1
+
         for continuation in parts[1:]:
             if row >= max_chronicle_row:
                 break
-            safe_addstr(stdscr, row, len(prefix), continuation, detail_attr)
+            safe_addstr(stdscr, row, 18, continuation, ui_attr(detail_pair))
+            row += 1
+
+        if row < max_chronicle_row:
             row += 1
 
     draw_divider(stdscr, height - 3, width, pair=PAIR_MUTED)
-    status = "FULL AUTONOMY · one decision per minute · permanent endless progression"
+    status = "● AUTONOMY ACTIVE   ·   one decision/minute   ·   progression never resets"
     safe_addstr(
         stdscr,
         height - 2,
@@ -901,7 +983,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         status,
         ui_attr(PAIR_GOOD, bold=True),
     )
-    footer = "Q quit   •   silent autosave every second   •   no manual strategy controls"
+    footer = "Q quit   •   silent autosave every second   •   race locked to this save"
     safe_addstr(
         stdscr,
         height - 1,
