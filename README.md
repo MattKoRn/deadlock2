@@ -15,13 +15,13 @@ Once the campaign has started, the only accepted keyboard command is `Q`, which 
 Exactly once per completed minute, one autonomous decision now:
 
 1. chooses one of Deadlock II's canon strategic verbs: Build, Trade, Research, or Attack;
-2. chooses a currently legal Colony Assistant task;
-3. executes the abstract strategic operation without inventing unverified costs, yields, or combat statistics;
-4. advances the turn;
-5. advances autonomous scenario progress;
-6. writes one highly detailed explanation into the Chronicle.
+2. applies a contextual project rule: Build in the opening third of a world, Trade through the middle third, Attack in the final third, and use every fourth eligible decision for Research so canon technology cannot be starved;
+3. maps that strategic verb to a currently legal canon Colony Assistant focus;
+4. executes the abstract strategic operation without inventing unverified costs, yields, or combat statistics;
+5. advances the turn and autonomous scenario progress;
+6. writes one highly detailed explanation—including the rule rationale—into the Chronicle.
 
-Research decisions automatically complete the next eligible verified technology and keep the unlock permanently.
+Research decisions automatically complete the next eligible verified technology and keep the unlock permanently. The imported research spine now includes the prerequisite chain needed to make every technology currently represented by the project reachable, including Advanced Medicine, Automation, Hoverway, Fusion Cannon, Neutronic Fuel, Flak, Underwater Tracking, Advanced Structures, Anti-Matter Rifles, and Power Cells.
 
 Advanced Colony Assistant tasks remain technology-gated.
 
@@ -50,7 +50,7 @@ The autonomous design continues to use:
 - the official Colony Assistant task names;
 - Deadlock II's Build / Trade / Research / Attack strategic loop;
 - Great Shrine, Hidden Shrine, and Underwater Shrine classifications;
-- verified technology prerequisites and effects;
+- verified technology prerequisites and effects, with the currently imported research table free of unreachable prerequisite dead ends;
 - canon metal values: Iron 1, Steel 5, Endurium 5, Tridium 10.
 
 Deadlock II officially includes a Colony Assistant for automated tasks and automated unit/resource production, which is the canon foundation being extended into this project's full-autonomy rule.
@@ -93,7 +93,7 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, contextual Build/Trade/Research/Attack selection, legal Colony Assistant focus mapping, offline automation, automatic world rollover, research persistence, full reachability of the imported technology table, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds and percentages, countdown timing/formatting, responsive text fitting, centered content geometry, clipped segmented-status widths, section-rule layout, terminal layout modes, Chronicle glyphs/labels, offline-duration formatting, and color semantics.
 
 ## Canon boundary
 
