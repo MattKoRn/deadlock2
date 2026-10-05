@@ -77,7 +77,7 @@ Semantic curses colors remain enabled when supported:
 - magenta: research/shrine information;
 - blue: autonomous decisions and scenario information.
 
-The presentation uses a calm mixed-case title, centered segmented status bands, individually colored live metrics, and soft Unicode chrome so the screen reads as one balanced composition. Mixed-color rows are now clipped to the shared content width before centering, preventing compact terminals from spilling status text outside the intended visual column. Untitled dividers use a lighter dotted Unicode rule, and the footer is reduced to a short AUTO / countdown / SAVE / OFFLINE / Q strip. The five-entry Chronicle keeps the extra breathing room: newest action expanded, older four compact and progressively softer. The race selector remains narrow and focused. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
+The presentation uses a calm mixed-case title, centered segmented status bands, individually colored live metrics, and soft Unicode chrome so the screen reads as one balanced composition. Mixed-color rows remain clipped to the shared content width before centering. World progress now uses a smoother thin Unicode bar instead of circular fill markers. Chronicle spacing is more deliberate: the expanded newest event gets one breathing row, while the previous four compact history entries stack directly so all five remain visible on shorter terminals. Untitled dividers stay light, and the footer is a concise AUTO / NEXT / SAVE / OFFLINE / Q strip. The race selector remains narrow and focused. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
 
 ## Run
 
