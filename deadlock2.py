@@ -281,6 +281,18 @@ def humanize_duration(seconds: int) -> str:
     return f"{secs}s"
 
 
+def selection_dots(count: int, selected_index: int) -> str:
+    """Return a restrained Unicode position indicator for race selection."""
+    safe_count = max(1, int(count))
+    safe_index = max(0, min(int(selected_index), safe_count - 1))
+    return " ".join("●" if index == safe_index else "·" for index in range(safe_count))
+
+
+def newest_event_attr(pair: int, newest: bool) -> int:
+    """Give only the newest Chronicle category a stronger live-state treatment."""
+    return ui_attr(pair, bold=True, reverse=newest)
+
+
 @dataclass(frozen=True)
 class TechnologyRule:
     prerequisites: tuple[str, ...]
@@ -967,7 +979,7 @@ def render_race_selection(
     stdscr: "curses._CursesWindow",
     selected_index: int,
 ) -> None:
-    """Render the one manual choice inside a calm centered composition."""
+    """Render the one manual choice with calm spacing and premium focus."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     mode = terminal_layout_mode(height, width)
@@ -977,11 +989,11 @@ def render_race_selection(
 
     content_x, content_width = content_geometry(
         width,
-        max_width=76 if mode == "compact" else 84,
+        max_width=74 if mode == "compact" else 82,
     )
     selected_race = RACES[selected_index]
-    title = "DEADLOCK II"
-    subtitle = "SHRINE WARS  ·  ETERNAL CHRONICLE"
+    title = "DEADLOCK II · SHRINE WARS"
+    subtitle = "ETERNAL CHRONICLE"
 
     safe_addstr(
         stdscr,
@@ -1001,12 +1013,12 @@ def render_race_selection(
         stdscr,
         2,
         content_width,
-        title="RACE SELECTION",
+        title="CHOOSE YOUR RACE",
         x=content_x,
     )
 
     intro = fit_text(
-        "Choose once. Everything after confirmation runs autonomously.",
+        "This choice is permanent. Strategy becomes fully autonomous after confirmation.",
         content_width,
     )
     safe_addstr(
@@ -1017,7 +1029,16 @@ def render_race_selection(
         ui_attr(PAIR_MUTED, dim=True),
     )
 
-    start_y = 6
+    dots = selection_dots(len(RACES), selected_index)
+    safe_addstr(
+        stdscr,
+        5,
+        centered_in(content_x, content_width, dots),
+        dots,
+        ui_attr(race_ui_pair(selected_race), bold=True),
+    )
+
+    start_y = 7
     widest = max(len(race) for race in RACES)
     for index, race in enumerate(RACES):
         selected = index == selected_index
@@ -1036,7 +1057,7 @@ def render_race_selection(
     info_y = start_y + len(RACES) + 1
     if info_y < height - 3:
         selected_detail = fit_text(
-            f"● {selected_race}   ·   Canon Planet View flag: "
+            f"{selected_race}   ·   Canon Planet View flag: "
             f"{RACE_FLAG_COLORS[selected_race]}",
             content_width,
         )
@@ -1075,7 +1096,7 @@ def render_race_selection(
 
 
 def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
-    """Render a centered, Chronicle-first terminal interface with quiet margins."""
+    """Render a quiet, polished Chronicle-first view with one clear live event."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     mode = terminal_layout_mode(height, width)
@@ -1088,14 +1109,10 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     wide = mode == "wide"
     content_x, content_width = content_geometry(
         width,
-        max_width=108 if wide else 82,
+        max_width=106 if wide else 80,
     )
 
-    title = "DEADLOCK II"
-    subtitle = fit_text(
-        f"SHRINE WARS  ·  ETERNAL CHRONICLE  ·  {state.race.upper()}",
-        content_width,
-    )
+    title = "DEADLOCK II · SHRINE WARS"
     safe_addstr(
         stdscr,
         0,
@@ -1103,63 +1120,52 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         title,
         ui_attr(PAIR_TITLE, bold=True),
     )
+
+    identity = fit_text(
+        f"ETERNAL CHRONICLE  ·  {state.race.upper()}  ·  WORLD "
+        f"{format_big_number(state.world_number)}",
+        content_width,
+    )
     safe_addstr(
         stdscr,
         1,
-        centered_in(content_x, content_width, subtitle),
-        subtitle,
+        centered_in(content_x, content_width, identity),
+        identity,
         ui_attr(race_ui_pair(state.race), bold=True),
     )
     draw_divider(stdscr, 2, content_width, x=content_x)
 
     countdown = format_countdown(seconds_until_next_decision(state.last_assistant_epoch))
-    badge = f"● {state.race}"
     if wide:
-        identity = (
-            (badge, ui_attr(race_ui_pair(state.race), bold=True)),
-            ("    WORLD ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("    TURN ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
-            ("    NEXT AI ", ui_attr(PAIR_MUTED, dim=True)),
+        summary = (
+            ("● ", ui_attr(PAIR_GOOD, bold=True)),
+            ("AUTONOMY ", ui_attr(PAIR_GOOD, bold=True)),
+            ("NEXT ", ui_attr(PAIR_MUTED, dim=True)),
             (countdown, ui_attr(PAIR_WARNING, bold=True)),
-        )
-    else:
-        identity = (
-            (badge, ui_attr(race_ui_pair(state.race), bold=True)),
-            ("   W ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.world_number), ui_attr(PAIR_WORLD, bold=True)),
-            ("   T ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
-            ("   AI ", ui_attr(PAIR_MUTED, dim=True)),
-            (countdown, ui_attr(PAIR_WARNING, bold=True)),
-        )
-    safe_add_segments_at(stdscr, 3, content_x, identity)
-
-    if wide:
-        empire = (
-            ("POWER ", ui_attr(PAIR_MUTED, dim=True)),
+            ("    POWER ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
-            ("    VICTORIES ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
-            ("    ENEMY SCALE ", ui_attr(PAIR_MUTED, dim=True)),
+            ("    ENEMY ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
+            ("    WINS ", ui_attr(PAIR_MUTED, dim=True)),
+            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
         )
     else:
-        empire = (
-            ("PWR ", ui_attr(PAIR_MUTED, dim=True)),
+        summary = (
+            ("● AI ", ui_attr(PAIR_GOOD, bold=True)),
+            (countdown, ui_attr(PAIR_WARNING, bold=True)),
+            ("   PWR ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.permanent_power), ui_attr(PAIR_GOOD, bold=True)),
-            ("   WIN ", ui_attr(PAIR_MUTED, dim=True)),
-            (format_big_number(state.worlds_completed), ui_attr(PAIR_WORLD)),
             ("   EN ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
         )
-    safe_add_segments_at(stdscr, 4, content_x, empire)
+    safe_add_segments_at(stdscr, 3, content_x, summary)
 
     if world is not None:
         if wide:
             world_line = (
-                ("SEED ", ui_attr(PAIR_MUTED, dim=True)),
+                ("TURN ", ui_attr(PAIR_MUTED, dim=True)),
+                (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
+                ("    SEED ", ui_attr(PAIR_MUTED, dim=True)),
                 (world.fingerprint, ui_attr(PAIR_INFO)),
                 ("    TERRITORIES ", ui_attr(PAIR_MUTED, dim=True)),
                 (str(world.territory_count), ui_attr(PAIR_WORLD)),
@@ -1170,6 +1176,9 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             )
         else:
             world_line = (
+                ("T ", ui_attr(PAIR_MUTED, dim=True)),
+                (format_big_number(state.turn), ui_attr(PAIR_WORLD)),
+                ("   ", ui_attr(PAIR_MUTED)),
                 (world.fingerprint, ui_attr(PAIR_INFO)),
                 ("   TERR ", ui_attr(PAIR_MUTED, dim=True)),
                 (str(world.territory_count), ui_attr(PAIR_WORLD)),
@@ -1178,10 +1187,10 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                 ("   SHR ", ui_attr(PAIR_MUTED, dim=True)),
                 (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
             )
-        safe_add_segments_at(stdscr, 5, content_x, world_line)
+        safe_add_segments_at(stdscr, 4, content_x, world_line)
 
     goal = state.world_action_goal()
-    meter_width = 22 if wide else 12
+    meter_width = 24 if wide else 12
     meter = progress_meter(state.world_actions, goal, meter_width)
     percent = progress_percent(state.world_actions, goal)
     eligible = state.eligible_technologies()
@@ -1190,17 +1199,17 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     ai_line = [
         (meter, ui_attr(PAIR_GOOD)),
         (f"  {percent:>3}%", ui_attr(PAIR_WORLD, bold=True)),
-        ("    FOCUS ", ui_attr(PAIR_MUTED, dim=True)),
+        ("    ", ui_attr(PAIR_MUTED)),
         (state.assistant_focus, ui_attr(PAIR_INFO, bold=True)),
     ]
     if wide:
         ai_line.extend(
             [
-                ("    RESEARCH ", ui_attr(PAIR_MUTED, dim=True)),
+                ("    NEXT RESEARCH ", ui_attr(PAIR_MUTED, dim=True)),
                 (next_tech, ui_attr(PAIR_RESEARCH)),
             ]
         )
-    safe_add_segments_at(stdscr, 6, content_x, tuple(ai_line))
+    safe_add_segments_at(stdscr, 5, content_x, tuple(ai_line))
 
     draw_divider(
         stdscr,
@@ -1210,12 +1219,14 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         x=content_x,
     )
 
+    entries = list(reversed(state.chronicle))
     row = 9
     footer_top = height - 3
-    for entry in reversed(state.chronicle):
+    for index, entry in enumerate(entries):
         if row >= footer_top:
             break
 
+        newest = index == 0
         label = chronicle_label_for_detail(entry.detail)
         glyph = chronicle_glyph(label)
         detail_pair = chronicle_pair_for_detail(entry.detail)
@@ -1234,66 +1245,77 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             stdscr,
             row,
             content_x + 2,
-            f"{label:<8}",
-            ui_attr(detail_pair, bold=True),
+            f" {label:<7} ",
+            newest_event_attr(detail_pair, newest),
         )
         safe_addstr(
             stdscr,
             row,
-            content_x + 11,
+            content_x + 12,
             fit_text(entry.at, 8),
-            ui_attr(PAIR_TITLE, bold=True),
+            ui_attr(PAIR_TITLE, bold=newest, dim=not newest),
         )
-        safe_addstr(
-            stdscr,
-            row,
-            content_x + prefix_width,
-            lines[0],
-            ui_attr(detail_pair),
-        )
-        row += 1
 
-        for continuation in lines[1:]:
-            if row >= footer_top:
-                break
+        if newest and row + 1 < footer_top:
+            row += 1
+            safe_addstr(
+                stdscr,
+                row,
+                content_x + 2,
+                lines[0],
+                ui_attr(detail_pair, bold=True),
+            )
+            for continuation in lines[1:]:
+                row += 1
+                if row >= footer_top:
+                    break
+                safe_addstr(
+                    stdscr,
+                    row,
+                    content_x + 2,
+                    continuation,
+                    ui_attr(PAIR_MUTED, dim=True),
+                )
+        else:
             safe_addstr(
                 stdscr,
                 row,
                 content_x + prefix_width,
-                continuation,
-                ui_attr(PAIR_MUTED, dim=True),
+                lines[0],
+                ui_attr(detail_pair, dim=True),
             )
-            row += 1
+            for continuation in lines[1:]:
+                row += 1
+                if row >= footer_top:
+                    break
+                safe_addstr(
+                    stdscr,
+                    row,
+                    content_x + prefix_width,
+                    continuation,
+                    ui_attr(PAIR_MUTED, dim=True),
+                )
 
+        row += 1
         if row < footer_top:
             row += 1
 
     draw_divider(stdscr, height - 3, content_width, x=content_x)
 
-    active = "● AUTONOMY"
-    detail = f"next {countdown}   ·   autosave 1s   ·   offline enabled"
-    combined = fit_text(f"{active}   {detail}", content_width)
-    status_x = centered_in(content_x, content_width, combined)
-    safe_addstr(
-        stdscr,
-        height - 2,
-        status_x,
-        active,
-        ui_attr(PAIR_GOOD, bold=True),
+    status = fit_text(
+        f"● AUTONOMY ACTIVE   ·   next {countdown}   ·   autosave 1s   ·   offline enabled",
+        content_width,
     )
     safe_addstr(
         stdscr,
         height - 2,
-        status_x + len(active),
-        fit_text(
-            f"   {detail}",
-            max(0, content_x + content_width - status_x - len(active)),
-        ),
-        ui_attr(PAIR_MUTED),
+        centered_in(content_x, content_width, status),
+        status,
+        ui_attr(PAIR_GOOD, bold=True),
     )
 
     footer = fit_text(
-        "Q quit   ·   permanent progression   ·   Chronicle 5",
+        "Q quit   ·   permanent progression   ·   Chronicle retains 5",
         content_width,
     )
     safe_addstr(
