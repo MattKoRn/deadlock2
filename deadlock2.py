@@ -813,10 +813,20 @@ def safe_add_segments(
     y: int,
     segments: Iterable[tuple[str, int]],
 ) -> None:
-    x = 0
+    safe_add_segments_at(window, y, 0, segments)
+
+
+def safe_add_segments_at(
+    window: "curses._CursesWindow",
+    y: int,
+    x: int,
+    segments: Iterable[tuple[str, int]],
+) -> None:
+    """Draw colored segments from a shared left edge for consistent alignment."""
+    cursor = max(0, int(x))
     for text, attr in segments:
-        safe_addstr(window, y, x, text, attr)
-        x += len(text)
+        safe_addstr(window, y, cursor, text, attr)
+        cursor += len(text)
 
 
 def show_offline_popup(
@@ -873,6 +883,26 @@ def center_x(width: int, text: str) -> int:
     return max(0, (width - len(text)) // 2)
 
 
+def content_geometry(
+    terminal_width: int,
+    *,
+    max_width: int = 108,
+    gutter: int = 2,
+) -> tuple[int, int]:
+    """Return a centered content column with predictable breathing room."""
+    safe_terminal = max(1, int(terminal_width))
+    safe_gutter = max(0, int(gutter))
+    available = max(1, safe_terminal - safe_gutter * 2)
+    content_width = min(max(1, int(max_width)), available)
+    left = max(0, (safe_terminal - content_width) // 2)
+    return left, content_width
+
+
+def centered_in(left: int, width: int, text: str) -> int:
+    """Center text inside the shared content column."""
+    return max(0, int(left)) + center_x(max(1, int(width)), text)
+
+
 def draw_divider(
     stdscr: "curses._CursesWindow",
     y: int,
@@ -880,12 +910,13 @@ def draw_divider(
     *,
     pair: int = PAIR_MUTED,
     title: str = "",
+    x: int = 0,
 ) -> None:
-    """Draw a Unicode section rule; layout only, never ASCII artwork."""
+    """Draw a Unicode section rule aligned to the shared content column."""
     if width <= 2:
         return
-    line = section_rule(title, width - 1) if title else "─" * (width - 1)
-    safe_addstr(stdscr, y, 0, line, ui_attr(pair, dim=True))
+    line = section_rule(title, width) if title else "─" * width
+    safe_addstr(stdscr, y, max(0, x), line, ui_attr(pair, dim=True))
 
 
 def render_tiny_terminal(
@@ -936,7 +967,7 @@ def render_race_selection(
     stdscr: "curses._CursesWindow",
     selected_index: int,
 ) -> None:
-    """Render the one manual choice with calm spacing and strong focus."""
+    """Render the one manual choice inside a calm centered composition."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     mode = terminal_layout_mode(height, width)
@@ -944,6 +975,10 @@ def render_race_selection(
         render_tiny_terminal(stdscr, race_selected=False)
         return
 
+    content_x, content_width = content_geometry(
+        width,
+        max_width=76 if mode == "compact" else 84,
+    )
     selected_race = RACES[selected_index]
     title = "DEADLOCK II"
     subtitle = "SHRINE WARS  ·  ETERNAL CHRONICLE"
@@ -951,25 +986,34 @@ def render_race_selection(
     safe_addstr(
         stdscr,
         0,
-        center_x(width, title),
+        centered_in(content_x, content_width, title),
         title,
         ui_attr(PAIR_TITLE, bold=True),
     )
     safe_addstr(
         stdscr,
         1,
-        center_x(width, subtitle),
+        centered_in(content_x, content_width, subtitle),
         subtitle,
         ui_attr(PAIR_WORLD, bold=True),
     )
-    draw_divider(stdscr, 2, width, title="RACE SELECTION")
+    draw_divider(
+        stdscr,
+        2,
+        content_width,
+        title="RACE SELECTION",
+        x=content_x,
+    )
 
-    intro = "Choose once. Everything after confirmation runs autonomously."
+    intro = fit_text(
+        "Choose once. Everything after confirmation runs autonomously.",
+        content_width,
+    )
     safe_addstr(
         stdscr,
         4,
-        center_x(width, fit_text(intro, width - 2)),
-        fit_text(intro, width - 2),
+        centered_in(content_x, content_width, intro),
+        intro,
         ui_attr(PAIR_MUTED, dim=True),
     )
 
@@ -978,53 +1022,60 @@ def render_race_selection(
     for index, race in enumerate(RACES):
         selected = index == selected_index
         marker = "◆" if selected else "·"
-        shortcut = f"{index + 1}"
-        label = f"{marker}  {shortcut}   {race:<{widest}}"
-        pair = race_ui_pair(race)
+        label = f"{marker}  {index + 1}   {race:<{widest}}"
         if selected:
             label = f"  {label}  "
         safe_addstr(
             stdscr,
             start_y + index,
-            center_x(width, label),
+            centered_in(content_x, content_width, label),
             label,
-            ui_attr(pair, bold=selected, reverse=selected),
+            ui_attr(race_ui_pair(race), bold=selected, reverse=selected),
         )
 
     info_y = start_y + len(RACES) + 1
     if info_y < height - 3:
-        selected_detail = (
+        selected_detail = fit_text(
             f"● {selected_race}   ·   Canon Planet View flag: "
-            f"{RACE_FLAG_COLORS[selected_race]}"
+            f"{RACE_FLAG_COLORS[selected_race]}",
+            content_width,
         )
         safe_addstr(
             stdscr,
             info_y,
-            center_x(width, fit_text(selected_detail, width - 2)),
-            fit_text(selected_detail, width - 2),
+            centered_in(content_x, content_width, selected_detail),
+            selected_detail,
             ui_attr(race_ui_pair(selected_race), bold=True),
         )
 
-    controls = "↑ ↓ / W S move    Enter confirm    1–7 select    Q quit"
+    controls = fit_text(
+        "↑ ↓ / W S move    Enter confirm    1–7 select    Q quit",
+        content_width,
+    )
     safe_addstr(
         stdscr,
         height - 2,
-        center_x(width, fit_text(controls, width - 1)),
-        fit_text(controls, width - 1),
+        centered_in(content_x, content_width, controls),
+        controls,
         ui_attr(PAIR_WARNING, bold=True),
+    )
+
+    footer = fit_text(
+        "ONE MANUAL CHOICE  ·  THEN FULL AUTONOMY",
+        content_width,
     )
     safe_addstr(
         stdscr,
         height - 1,
-        center_x(width, "ONE MANUAL CHOICE  ·  THEN FULL AUTONOMY"),
-        fit_text("ONE MANUAL CHOICE  ·  THEN FULL AUTONOMY", width - 1),
+        centered_in(content_x, content_width, footer),
+        footer,
         ui_attr(PAIR_MUTED, dim=True),
     )
     stdscr.refresh()
 
 
 def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
-    """Render a restrained, responsive Chronicle-first terminal interface."""
+    """Render a centered, Chronicle-first terminal interface with quiet margins."""
     stdscr.erase()
     height, width = stdscr.getmaxyx()
     mode = terminal_layout_mode(height, width)
@@ -1035,24 +1086,31 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     state.ensure_world()
     world = state.world_map
     wide = mode == "wide"
+    content_x, content_width = content_geometry(
+        width,
+        max_width=108 if wide else 82,
+    )
 
     title = "DEADLOCK II"
-    subtitle = f"SHRINE WARS  ·  ETERNAL CHRONICLE  ·  {state.race.upper()}"
+    subtitle = fit_text(
+        f"SHRINE WARS  ·  ETERNAL CHRONICLE  ·  {state.race.upper()}",
+        content_width,
+    )
     safe_addstr(
         stdscr,
         0,
-        center_x(width, title),
+        centered_in(content_x, content_width, title),
         title,
         ui_attr(PAIR_TITLE, bold=True),
     )
     safe_addstr(
         stdscr,
         1,
-        center_x(width, fit_text(subtitle, width - 1)),
-        fit_text(subtitle, width - 1),
+        centered_in(content_x, content_width, subtitle),
+        subtitle,
         ui_attr(race_ui_pair(state.race), bold=True),
     )
-    draw_divider(stdscr, 2, width)
+    draw_divider(stdscr, 2, content_width, x=content_x)
 
     countdown = format_countdown(seconds_until_next_decision(state.last_assistant_epoch))
     badge = f"● {state.race}"
@@ -1076,7 +1134,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             ("   AI ", ui_attr(PAIR_MUTED, dim=True)),
             (countdown, ui_attr(PAIR_WARNING, bold=True)),
         )
-    safe_add_segments(stdscr, 3, identity)
+    safe_add_segments_at(stdscr, 3, content_x, identity)
 
     if wide:
         empire = (
@@ -1096,7 +1154,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             ("   EN ", ui_attr(PAIR_MUTED, dim=True)),
             (format_big_number(state.enemy_scale_rating()), ui_attr(PAIR_DANGER, bold=True)),
         )
-    safe_add_segments(stdscr, 4, empire)
+    safe_add_segments_at(stdscr, 4, content_x, empire)
 
     if world is not None:
         if wide:
@@ -1120,7 +1178,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                 ("   SHR ", ui_attr(PAIR_MUTED, dim=True)),
                 (str(len(world.shrine_sites)), ui_attr(PAIR_RESEARCH)),
             )
-        safe_add_segments(stdscr, 5, world_line)
+        safe_add_segments_at(stdscr, 5, content_x, world_line)
 
     goal = state.world_action_goal()
     meter_width = 22 if wide else 12
@@ -1142,9 +1200,15 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
                 (next_tech, ui_attr(PAIR_RESEARCH)),
             ]
         )
-    safe_add_segments(stdscr, 6, tuple(ai_line))
+    safe_add_segments_at(stdscr, 6, content_x, tuple(ai_line))
 
-    draw_divider(stdscr, 7, width, title="CHRONICLE  ·  LATEST FIVE")
+    draw_divider(
+        stdscr,
+        7,
+        content_width,
+        title="CHRONICLE  ·  LATEST FIVE",
+        x=content_x,
+    )
 
     row = 9
     footer_top = height - 3
@@ -1155,37 +1219,35 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         label = chronicle_label_for_detail(entry.detail)
         glyph = chronicle_glyph(label)
         detail_pair = chronicle_pair_for_detail(entry.detail)
-        time_text = entry.at
         prefix_width = 20 if wide else 17
-        detail_width = max(14, width - prefix_width - 1)
+        detail_width = max(14, content_width - prefix_width)
         lines = list(wrapped_lines(entry.detail, detail_width))
 
         safe_addstr(
             stdscr,
             row,
-            0,
+            content_x,
             glyph,
             ui_attr(detail_pair, bold=True),
         )
         safe_addstr(
             stdscr,
             row,
-            2,
+            content_x + 2,
             f"{label:<8}",
             ui_attr(detail_pair, bold=True),
         )
-        time_x = 11
         safe_addstr(
             stdscr,
             row,
-            time_x,
-            fit_text(time_text, 8),
+            content_x + 11,
+            fit_text(entry.at, 8),
             ui_attr(PAIR_TITLE, bold=True),
         )
         safe_addstr(
             stdscr,
             row,
-            prefix_width,
+            content_x + prefix_width,
             lines[0],
             ui_attr(detail_pair),
         )
@@ -1197,7 +1259,7 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
             safe_addstr(
                 stdscr,
                 row,
-                prefix_width,
+                content_x + prefix_width,
                 continuation,
                 ui_attr(PAIR_MUTED, dim=True),
             )
@@ -1206,32 +1268,39 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
         if row < footer_top:
             row += 1
 
-    draw_divider(stdscr, height - 3, width)
+    draw_divider(stdscr, height - 3, content_width, x=content_x)
+
     active = "● AUTONOMY"
     detail = f"next {countdown}   ·   autosave 1s   ·   offline enabled"
-    combined = f"{active}   {detail}"
-    start_x = center_x(width, fit_text(combined, width - 1))
+    combined = fit_text(f"{active}   {detail}", content_width)
+    status_x = centered_in(content_x, content_width, combined)
     safe_addstr(
         stdscr,
         height - 2,
-        start_x,
+        status_x,
         active,
         ui_attr(PAIR_GOOD, bold=True),
     )
     safe_addstr(
         stdscr,
         height - 2,
-        start_x + len(active),
-        fit_text(f"   {detail}", max(0, width - start_x - len(active) - 1)),
+        status_x + len(active),
+        fit_text(
+            f"   {detail}",
+            max(0, content_x + content_width - status_x - len(active)),
+        ),
         ui_attr(PAIR_MUTED),
     )
 
-    footer = "Q quit   ·   permanent progression   ·   Chronicle 5"
+    footer = fit_text(
+        "Q quit   ·   permanent progression   ·   Chronicle 5",
+        content_width,
+    )
     safe_addstr(
         stdscr,
         height - 1,
-        center_x(width, fit_text(footer, width - 1)),
-        fit_text(footer, width - 1),
+        centered_in(content_x, content_width, footer),
+        footer,
         ui_attr(PAIR_MUTED, dim=True),
     )
     stdscr.refresh()
