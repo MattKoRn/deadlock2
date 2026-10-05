@@ -889,6 +889,25 @@ def segments_width(segments: Iterable[tuple[str, int]]) -> int:
     return sum(len(text) for text, _ in segments)
 
 
+def fit_segments(
+    segments: Iterable[tuple[str, int]],
+    width: int,
+) -> tuple[tuple[str, int], ...]:
+    """Clip a colored segment row to one visual width without losing semantics."""
+    remaining = max(0, int(width))
+    fitted: list[tuple[str, int]] = []
+    for text, attr in segments:
+        if remaining <= 0:
+            break
+        clipped = text[:remaining]
+        if clipped:
+            fitted.append((clipped, attr))
+            remaining -= len(clipped)
+        if len(clipped) < len(text):
+            break
+    return tuple(fitted)
+
+
 def safe_add_centered_segments(
     window: "curses._CursesWindow",
     y: int,
@@ -896,10 +915,11 @@ def safe_add_centered_segments(
     width: int,
     segments: Iterable[tuple[str, int]],
 ) -> None:
-    """Center a colored segmented row inside the shared content column."""
-    stable = tuple(segments)
+    """Center and clip a colored row inside the shared content column."""
+    safe_width = max(0, int(width))
+    stable = fit_segments(tuple(segments), safe_width)
     total = segments_width(stable)
-    x = max(int(left), int(left) + max(0, (int(width) - total) // 2))
+    x = max(int(left), int(left) + max(0, (safe_width - total) // 2))
     safe_add_segments_at(window, y, x, stable)
 
 
@@ -989,7 +1009,7 @@ def draw_divider(
     """Draw a Unicode section rule aligned to the shared content column."""
     if width <= 2:
         return
-    line = section_rule(title, width) if title else "─" * width
+    line = section_rule(title, width) if title else "┄" * width
     safe_addstr(stdscr, y, max(0, x), line, ui_attr(pair, dim=True))
 
 
@@ -1397,11 +1417,11 @@ def render(stdscr: "curses._CursesWindow", state: GameState) -> None:
     draw_divider(stdscr, height - 2, content_width, x=content_x)
 
     footer_segments = (
-        ("● ", ui_attr(PAIR_GOOD, bold=True)),
-        ("AUTONOMY", ui_attr(PAIR_GOOD, bold=True)),
-        ("   ·   NEXT ", ui_attr(PAIR_MUTED, dim=True)),
+        ("● AUTO", ui_attr(PAIR_GOOD, bold=True)),
+        ("   ·   ", ui_attr(PAIR_MUTED, dim=True)),
         (countdown, ui_attr(PAIR_WARNING, bold=True)),
-        ("   ·   AUTOSAVE 1s", ui_attr(PAIR_MUTED, dim=True)),
+        ("   ·   SAVE 1s", ui_attr(PAIR_MUTED, dim=True)),
+        ("   ·   OFFLINE", ui_attr(PAIR_INFO, dim=True)),
         ("   ·   Q QUIT", ui_attr(PAIR_MUTED, dim=True)),
     )
     safe_add_centered_segments(
