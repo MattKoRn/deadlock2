@@ -18,16 +18,22 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         stamp = deadlock2.timestamp_12h(1_700_000_000)
         self.assertRegex(stamp, r"^\d{1,2}:\d{2} (AM|PM)$")
 
-    def test_bootstrap_selects_race_and_world_without_player_input(self):
+    def test_manual_race_selection_starts_autonomous_campaign(self):
         state = deadlock2.GameState()
-        state.bootstrap_autonomous_campaign(race="Human", seed=123, epoch=1000.0)
+        state.select_race("Human", seed=123, epoch=1000.0)
         self.assertEqual(state.race, "Human")
         self.assertEqual(state.world_map.seed, 123)
         self.assertEqual(state.last_assistant_epoch, 1000.0)
 
+    def test_race_selection_is_permanent_for_save(self):
+        state = deadlock2.GameState()
+        state.select_race("Human", seed=123, epoch=1000.0)
+        with self.assertRaises(RuntimeError):
+            state.select_race("Cyth", seed=456, epoch=1100.0)
+
     def test_one_decision_per_full_minute_executes_actions(self):
         state = deadlock2.GameState(last_assistant_epoch=1_000.0)
-        state.bootstrap_autonomous_campaign(race="Human", seed=10, epoch=1_000.0)
+        state.select_race("Human", seed=10, epoch=1_000.0)
         applied = state.apply_due_assistant_decisions(1_181.0)
         self.assertEqual(applied, 3)
         self.assertEqual(state.assistant_decisions, 3)
@@ -38,7 +44,7 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
 
     def test_offline_progress_uses_same_autonomous_cadence(self):
         state = deadlock2.GameState()
-        state.bootstrap_autonomous_campaign(race="Human", seed=10, epoch=2_000.0)
+        state.select_race("Human", seed=10, epoch=2_000.0)
         report = deadlock2.apply_offline_progress(state, now=2_125.0)
         self.assertEqual(report.away_seconds, 125)
         self.assertEqual(report.decisions_applied, 2)
@@ -49,7 +55,7 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertFalse(hasattr(deadlock2.GameState, "toggle_assistant"))
         self.assertFalse(hasattr(deadlock2.GameState, "set_assistant_focus"))
         self.assertFalse(hasattr(deadlock2.GameState, "end_turn"))
-        self.assertFalse(hasattr(deadlock2.GameState, "choose_race"))
+        self.assertTrue(hasattr(deadlock2.GameState, "select_race"))
 
     def test_advanced_resource_tasks_are_technology_gated(self):
         state = deadlock2.GameState()
@@ -81,7 +87,7 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
 
     def test_assistant_never_selects_blocked_task(self):
         state = deadlock2.GameState()
-        state.bootstrap_autonomous_campaign(race="Human", seed=20, epoch=1_000.0)
+        state.select_race("Human", seed=20, epoch=1_000.0)
         for minute in range(1, 20):
             state.make_assistant_decision(1_000.0 + minute * 60)
             self.assertTrue(state.can_use_task(state.assistant_focus))
@@ -102,7 +108,7 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
 
     def test_autonomous_goal_rolls_into_next_world(self):
         state = deadlock2.GameState()
-        state.bootstrap_autonomous_campaign(race="Human", seed=100, epoch=1_000.0)
+        state.select_race("Human", seed=100, epoch=1_000.0)
         state.world_actions = state.world_action_goal() - 1
         old_world = state.world_number
         state.make_assistant_decision(1_060.0)
