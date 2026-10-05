@@ -262,6 +262,11 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(deadlock2.centered_in(10, 20, "TEST"), 18)
         self.assertEqual(deadlock2.centered_in(0, 10, "AB"), 4)
 
+    def test_selection_dots_marks_one_race(self):
+        self.assertEqual(deadlock2.selection_dots(7, 0), "● · · · · · ·")
+        self.assertEqual(deadlock2.selection_dots(3, 1), "· ● ·")
+        self.assertEqual(deadlock2.selection_dots(3, 99), "· · ●")
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
