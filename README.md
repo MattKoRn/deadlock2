@@ -77,7 +77,7 @@ Semantic curses colors remain enabled when supported:
 - magenta: research/shrine information;
 - blue: autonomous decisions and scenario information.
 
-The presentation now uses a cleaner centered title, restrained Unicode dividers, aligned status rows, stronger spacing, and the existing semantic color palette. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
+The presentation now uses a centered two-line title, restrained Unicode dividers, responsive status rows, a compact Unicode world-progress meter, a live countdown to the next one-minute AI decision, and labeled Chronicle entries such as AI / RESEARCH / WORLD / OFFLINE. The race screen also shows each race's canon Planet View flag color from the official manual. No tabs, dashboard panels, ASCII maps, or manual strategy menus have been added.
 
 ## Run
 
@@ -93,7 +93,7 @@ On Windows, install a curses-compatible package such as `windows-curses` if need
 python -m unittest -v
 ```
 
-The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, and color semantics.
+The regression suite covers permanent manual race selection, absence of manual strategy methods, one-decision-per-minute execution, offline automation, automatic world rollover, research persistence, technology gating, procedural maps, uncapped scaling, unlimited number suffixes, save persistence, Chronicle limits, canon race-flag metadata, progress-meter bounds, countdown timing, Chronicle labels, and color semantics.
 
 ## Canon boundary
 
