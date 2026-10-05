@@ -215,6 +215,21 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
             "WORLD",
         )
 
+    def test_countdown_formats_as_terminal_clock(self):
+        self.assertEqual(deadlock2.format_countdown(60), "01:00")
+        self.assertEqual(deadlock2.format_countdown(37), "00:37")
+        self.assertEqual(deadlock2.format_countdown(-5), "00:00")
+
+    def test_progress_percent_clamps_to_world_goal(self):
+        self.assertEqual(deadlock2.progress_percent(0, 20), 0)
+        self.assertEqual(deadlock2.progress_percent(10, 20), 50)
+        self.assertEqual(deadlock2.progress_percent(200, 20), 100)
+
+    def test_fit_text_uses_clean_ellipsis(self):
+        self.assertEqual(deadlock2.fit_text("Deadlock", 8), "Deadlock")
+        self.assertEqual(deadlock2.fit_text("Deadlock", 5), "Dead…")
+        self.assertEqual(deadlock2.fit_text("Deadlock", 1), "D")
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
