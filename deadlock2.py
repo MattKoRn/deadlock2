@@ -10,7 +10,6 @@ Chronicle-first presentation are project systems layered around the canon loop.
 from __future__ import annotations
 
 import curses
-import io
 import json
 import math
 import os
@@ -24,7 +23,6 @@ import textwrap
 import time
 import urllib.error
 import urllib.request
-import zipfile
 from collections import deque
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -40,18 +38,27 @@ AUTOSAVE_INTERVAL_SECONDS = 1.0
 ASSISTANT_INTERVAL_SECONDS = 60.0
 CHRONICLE_LIMIT = 5
 
-SYMBOL_FONT_FAMILY = "Noto Sans Symbols 2"
-SYMBOL_FONT_FILENAME = "NotoSansSymbols2-Regular.ttf"
-SYMBOL_FONT_RELEASE = "NotoSansSymbols2-v2.008"
-SYMBOL_FONT_URL = (
-    "https://github.com/notofonts/symbols/releases/download/"
-    "NotoSansSymbols2-v2.008/NotoSansSymbols2-v2.008.zip"
+SYMBOL_FONT_ASSETS = (
+    (
+        "Noto Sans Mono",
+        "NotoSansMono-Deadlock2.ttf",
+        "https://raw.githubusercontent.com/google/fonts/main/ofl/notosansmono/"
+        "NotoSansMono%5Bwdth%2Cwght%5D.ttf",
+    ),
+    (
+        "Noto Sans Symbols",
+        "NotoSansSymbols-Deadlock2.ttf",
+        "https://raw.githubusercontent.com/google/fonts/main/ofl/notosanssymbols/"
+        "NotoSansSymbols%5Bwght%5D.ttf",
+    ),
 )
 SYMBOL_FONT_MIN_BYTES = 100_000
+SYMBOL_FONT_MAX_BYTES = 8 * 1024 * 1024
 
 # One source of truth for all decorative Unicode used by the curses surface.
-# Noto Sans Symbols 2 covers the geometric/dingbat symbols while normal terminal
-# fonts provide the common box-drawing characters.
+# The automatic bundle intentionally includes a monospace font for box drawing
+# plus a symbol font for dingbats/geometric marks; either family alone leaves
+# gaps on some terminals.
 UI_SYMBOLS = {
     "live": "●",
     "world": "◆",
@@ -68,6 +75,28 @@ UI_SYMBOLS = {
     "rule": "─",
     "divider": "┄",
 }
+
+SAFE_UI_SYMBOLS = {
+    "live": "●",
+    "world": "◇",
+    "research": "◆",
+    "offline": "○",
+    "event": "·",
+    "selected": "◆",
+    "unselected": "·",
+    "rail_live": "│",
+    "rail_history": "│",
+    "separator": "·",
+    "progress_full": "━",
+    "progress_empty": "─",
+    "rule": "─",
+    "divider": "─",
+}
+
+
+def activate_safe_ui_symbols() -> None:
+    """Use only the most widely available Unicode glyphs for this process."""
+    UI_SYMBOLS.update(SAFE_UI_SYMBOLS)
 
 PAIR_TITLE = 1
 PAIR_WORLD = 2
@@ -215,12 +244,13 @@ class SymbolFontReport:
 
 
 def symbol_font_target(
+    filename: str,
     system_name: Optional[str] = None,
     *,
     home: Optional[Path] = None,
     local_appdata: Optional[str] = None,
 ) -> Path:
-    """Return the user-local install target without requiring administrator rights."""
+    """Return a user-local install target without requiring administrator rights."""
     system = (system_name or platform.system()).lower()
     user_home = home or Path.home()
     if system == "windows":
@@ -228,42 +258,42 @@ def symbol_font_target(
             local_appdata
             or os.environ.get("LOCALAPPDATA", str(user_home / "AppData" / "Local"))
         )
-        return base / "Microsoft" / "Windows" / "Fonts" / SYMBOL_FONT_FILENAME
+        return base / "Microsoft" / "Windows" / "Fonts" / filename
     if system == "darwin":
-        return user_home / "Library" / "Fonts" / SYMBOL_FONT_FILENAME
-    return user_home / ".local" / "share" / "fonts" / SYMBOL_FONT_FILENAME
+        return user_home / "Library" / "Fonts" / filename
+    return user_home / ".local" / "share" / "fonts" / "deadlock2" / filename
 
 
-def symbol_font_candidates() -> tuple[Path, ...]:
-    """Return common user/system locations that prove the symbol font is available."""
+def symbol_font_candidates(filename: str) -> tuple[Path, ...]:
+    """Return user/system locations that may contain one required font asset."""
     system = platform.system().lower()
-    target = symbol_font_target(system)
+    target = symbol_font_target(filename, system)
     candidates = [target]
 
     if system == "windows":
         windows_dir = Path(os.environ.get("WINDIR", r"C:\Windows"))
-        candidates.append(windows_dir / "Fonts" / SYMBOL_FONT_FILENAME)
+        candidates.append(windows_dir / "Fonts" / filename)
     elif system == "darwin":
         candidates.extend(
             [
-                Path("/Library/Fonts") / SYMBOL_FONT_FILENAME,
-                Path("/System/Library/Fonts") / SYMBOL_FONT_FILENAME,
+                Path("/Library/Fonts") / filename,
+                Path("/System/Library/Fonts") / filename,
             ]
         )
     else:
         candidates.extend(
             [
-                Path.home() / ".fonts" / SYMBOL_FONT_FILENAME,
-                Path("/usr/share/fonts/truetype/noto") / SYMBOL_FONT_FILENAME,
-                Path("/usr/share/fonts/opentype/noto") / SYMBOL_FONT_FILENAME,
+                Path.home() / ".fonts" / filename,
+                Path("/usr/share/fonts/truetype/noto") / filename,
+                Path("/usr/share/fonts/opentype/noto") / filename,
             ]
         )
     return tuple(candidates)
 
 
-def symbol_font_available() -> bool:
-    """Check known font locations without requiring platform-specific packages."""
-    for candidate in symbol_font_candidates():
+def font_file_available(filename: str) -> bool:
+    """Check known locations for one guaranteed Deadlock II font asset."""
+    for candidate in symbol_font_candidates(filename):
         try:
             if candidate.is_file() and candidate.stat().st_size >= SYMBOL_FONT_MIN_BYTES:
                 return True
@@ -272,29 +302,42 @@ def symbol_font_available() -> bool:
     return False
 
 
-def choose_symbol_font_member(names: Iterable[str]) -> Optional[str]:
-    """Choose the regular Noto Sans Symbols 2 TTF from an official release archive."""
-    clean = [str(name) for name in names if str(name).lower().endswith(".ttf")]
-    preferred = [
-        name
-        for name in clean
-        if name.rsplit("/", 1)[-1].lower() == SYMBOL_FONT_FILENAME.lower()
-    ]
-    if preferred:
-        return preferred[0]
-    regular = [
-        name
-        for name in clean
-        if "notosanssymbols2" in name.lower() and "regular" in name.lower()
-    ]
-    if regular:
-        return regular[0]
-    fallback = [name for name in clean if "notosanssymbols2" in name.lower()]
-    return fallback[0] if fallback else None
+def symbol_font_available() -> bool:
+    """Require both the monospace/box and decorative symbol font assets."""
+    return all(font_file_available(filename) for _, filename, _ in SYMBOL_FONT_ASSETS)
 
 
-def refresh_symbol_font_registration(target: Path) -> None:
-    """Refresh the current user's font registry/cache where the OS supports it."""
+def font_payload_is_valid(payload: bytes) -> bool:
+    """Reject error pages, truncated data, and oversized downloads."""
+    if not (SYMBOL_FONT_MIN_BYTES <= len(payload) <= SYMBOL_FONT_MAX_BYTES):
+        return False
+    return payload[:4] in (b"\x00\x01\x00\x00", b"OTTO", b"true", b"ttcf")
+
+
+def download_font_asset(url: str, target: Path, timeout: float) -> None:
+    """Download one official TTF atomically after validating its font signature."""
+    request = urllib.request.Request(
+        url,
+        headers={"User-Agent": "Deadlock-II-Shrine-Wars/Unicode-Repair"},
+    )
+    with urllib.request.urlopen(request, timeout=max(1.0, float(timeout))) as response:
+        content_length = response.headers.get("Content-Length")
+        if content_length and int(content_length) > SYMBOL_FONT_MAX_BYTES:
+            raise ValueError("font download exceeded the safety size limit")
+        payload = response.read(SYMBOL_FONT_MAX_BYTES + 1)
+
+    if not font_payload_is_valid(payload):
+        raise ValueError("download did not contain a valid supported font")
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    temp_target = target.with_suffix(target.suffix + ".tmp")
+    temp_target.write_bytes(payload)
+    os.replace(temp_target, target)
+
+
+def refresh_symbol_font_registration(targets: Iterable[Path]) -> str:
+    """Refresh user font registration/cache and return a Chronicle-ready result."""
+    paths = tuple(targets)
     system = platform.system().lower()
 
     if system == "windows":
@@ -306,19 +349,22 @@ def refresh_symbol_font_registration(target: Path) -> None:
                 winreg.HKEY_CURRENT_USER,
                 r"Software\Microsoft\Windows NT\CurrentVersion\Fonts",
             ) as key:
-                winreg.SetValueEx(
-                    key,
-                    f"{SYMBOL_FONT_FAMILY} (TrueType)",
-                    0,
-                    winreg.REG_SZ,
-                    str(target),
-                )
+                for target in paths:
+                    winreg.SetValueEx(
+                        key,
+                        f"{target.stem} (TrueType)",
+                        0,
+                        winreg.REG_SZ,
+                        str(target),
+                    )
+                    # Flags=0 exposes the font to the current desktop session.
+                    # FR_PRIVATE would only expose it to this Python process and
+                    # would not help the parent terminal emulator render glyphs.
+                    ctypes.windll.gdi32.AddFontResourceExW(str(target), 0, 0)
 
-            FR_PRIVATE = 0x10
             HWND_BROADCAST = 0xFFFF
             WM_FONTCHANGE = 0x001D
             SMTO_ABORTIFHUNG = 0x0002
-            ctypes.windll.gdi32.AddFontResourceExW(str(target), FR_PRIVATE, 0)
             result = ctypes.c_ulong()
             ctypes.windll.user32.SendMessageTimeoutW(
                 HWND_BROADCAST,
@@ -329,71 +375,86 @@ def refresh_symbol_font_registration(target: Path) -> None:
                 1000,
                 ctypes.byref(result),
             )
+            return "Windows per-user font registry and desktop font session refreshed"
         except (ImportError, OSError, AttributeError):
-            pass
-        return
+            return "font files installed; Windows live registration was unavailable"
 
     if system == "linux":
         cache = shutil.which("fc-cache")
         if cache:
             try:
                 subprocess.run(
-                    [cache, "-f", str(target.parent)],
+                    [cache, "-f", str(paths[0].parent)],
                     check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
                     timeout=10,
                 )
+                return "fontconfig cache refreshed"
             except (OSError, subprocess.SubprocessError):
-                pass
+                return "font files installed; fontconfig cache refresh failed"
+        return "font files installed; fontconfig cache tool was unavailable"
+
+    if system == "darwin":
+        return "fonts installed into the macOS user font directory"
+
+    return "user font files installed"
 
 
 def install_symbol_font(timeout: float = 12.0) -> SymbolFontReport:
-    """Download and install the official Noto symbol font into the user profile."""
+    """Ensure both official Noto font families required by the UI are installed."""
     if symbol_font_available():
         return SymbolFontReport(available=True)
 
-    target = symbol_font_target()
-    try:
-        request = urllib.request.Request(
-            SYMBOL_FONT_URL,
-            headers={"User-Agent": "Deadlock-II-Shrine-Wars/1.0"},
-        )
-        with urllib.request.urlopen(request, timeout=max(1.0, float(timeout))) as response:
-            archive_bytes = response.read()
+    installed: list[Path] = []
+    failures: list[str] = []
 
-        with zipfile.ZipFile(io.BytesIO(archive_bytes)) as archive:
-            member = choose_symbol_font_member(archive.namelist())
-            if member is None:
-                raise ValueError("official symbol-font archive contained no compatible TTF")
-            font_bytes = archive.read(member)
+    for family, filename, url in SYMBOL_FONT_ASSETS:
+        if font_file_available(filename):
+            continue
+        target = symbol_font_target(filename)
+        try:
+            download_font_asset(url, target, timeout)
+            installed.append(target)
+        except (OSError, ValueError, urllib.error.URLError) as error:
+            failures.append(f"{family}: {error}")
 
-        if len(font_bytes) < SYMBOL_FONT_MIN_BYTES:
-            raise ValueError("downloaded symbol font was unexpectedly small")
+    registration = ""
+    if installed:
+        registration = refresh_symbol_font_registration(installed)
 
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temp_target = target.with_suffix(target.suffix + ".tmp")
-        temp_target.write_bytes(font_bytes)
-        os.replace(temp_target, target)
-        refresh_symbol_font_registration(target)
+    available = symbol_font_available()
+    if available and not failures:
+        names = ", ".join(family for family, _, _ in SYMBOL_FONT_ASSETS)
         return SymbolFontReport(
             available=True,
-            installed_now=True,
+            installed_now=bool(installed),
             detail=(
-                f"Installed {SYMBOL_FONT_FAMILY} {SYMBOL_FONT_RELEASE} automatically "
-                f"for this user at {target}; Chronicle and interface symbols now use "
-                "the shared Unicode symbol set."
-            ),
+                f"Symbol support self-repair installed the OFL-licensed {names} bundle "
+                f"for this user; {registration}. Noto Sans Mono supplies terminal and "
+                "box-drawing coverage while Noto Sans Symbols supplies Chronicle marks. "
+                "A terminal that does not adopt newly registered fallback fonts live may "
+                "need a fresh terminal session; this run uses the conservative Unicode "
+                "glyph vocabulary when installation occurred."
+            )
+            if installed
+            else "",
         )
-    except (OSError, ValueError, zipfile.BadZipFile, urllib.error.URLError) as error:
-        return SymbolFontReport(
-            available=False,
-            installed_now=False,
-            detail=(
-                f"Could not auto-install {SYMBOL_FONT_FAMILY}: {error}. "
-                "The game continues safely with the terminal's existing Unicode fonts."
-            ),
-        )
+
+    detail = (
+        "Symbol support self-repair could not complete the two-font Noto bundle"
+    )
+    if failures:
+        detail += f": {'; '.join(failures)}"
+    detail += (
+        ". Gameplay continues with a conservative Unicode glyph vocabulary and "
+        "the installer retries missing fonts automatically on the next launch."
+    )
+    return SymbolFontReport(
+        available=available,
+        installed_now=bool(installed),
+        detail=detail,
+    )
 
 
 def init_colors() -> None:
@@ -2056,6 +2117,8 @@ def run_game(
 
 def main() -> None:
     symbol_report = install_symbol_font()
+    if symbol_report.installed_now or not symbol_report.available:
+        activate_safe_ui_symbols()
     curses.wrapper(run_game, symbol_report)
 
 
