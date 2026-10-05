@@ -267,6 +267,17 @@ class AutonomousChronicleRulesTests(unittest.TestCase):
         self.assertEqual(deadlock2.selection_dots(3, 1), "· ● ·")
         self.assertEqual(deadlock2.selection_dots(3, 99), "· · ●")
 
+    def test_chronicle_rails_distinguish_live_event(self):
+        self.assertEqual(deadlock2.chronicle_rail(True), "┃")
+        self.assertEqual(deadlock2.chronicle_rail(False), "│")
+
+    def test_compact_metric_formats_consistently(self):
+        self.assertEqual(deadlock2.compact_metric("power", "12K"), "POWER 12K")
+        self.assertEqual(
+            deadlock2.compact_metric("power", "12K", compact=True),
+            "POW 12K",
+        )
+
     def test_chronicle_color_semantics_are_stable(self):
         self.assertEqual(
             deadlock2.chronicle_pair_for_detail("Autonomous decision #4 changed focus."),
